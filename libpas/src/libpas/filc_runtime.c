@@ -7860,6 +7860,11 @@ filc_jmp_buf* filc_jmp_buf_create(filc_thread* my_thread, filc_jmp_buf_kind kind
     result->saved_top_native_frame = my_thread->top_native_frame;
     result->saved_allocation_roots_size = my_thread->allocation_roots.size;
     result->saved_special_signal_deferral_depth = my_thread->special_signal_deferral_depth;
+
+    /* NOTE: The jmp_buf tracking lowers is necessary for setjmp's that aren't in loops
+       and for ABI reasons for setjmp's that are in loops (and code compiled with older
+       versions of the compiler has a GC root bug for setjmps in loops due to reliance
+       on this mechanism). */
     result->num_lowers = function_origin->base.num_lowers_ish;
     size_t index;
     for (index = function_origin->base.num_lowers_ish; index--;) {
@@ -7946,6 +7951,12 @@ void filc_native_zlongjmp(filc_thread* my_thread, filc_ptr jmp_buf_ptr, int valu
     PAS_ASSERT(my_thread->top_frame == jmp_buf->saved_top_frame);
     PAS_ASSERT(filc_origin_get_function_origin(my_thread->top_frame->origin)->base.num_lowers_ish
                == jmp_buf->num_lowers);
+
+    /* NOTE: The callsite will overwrite the lowers in cases where we get them wrong. That only happens
+       for setjmps that are in loops.
+    
+       Ideally, we wouldn't do this overwrite for jmp_bufs corresponding to setjmps that are in loops,
+       since the live state for those jmp_bufs is in unique lowers slots. */
     size_t index;
     for (index = jmp_buf->num_lowers; index--;)
         my_thread->top_frame->lowers[index] = jmp_buf->lowers[index];

@@ -117,6 +117,8 @@ static PAS_ALWAYS_INLINE fugc_mark_fast_result fugc_mark_fast(filc_object* objec
         pas_log("Marking object %p\n", object);
     if (!object)
         return fugc_mark_fast_already_marked;
+    if (verbose)
+        pas_log("Marking lower %p\n", filc_object_lower(object));
     uintptr_t aux = object->aux;
     filc_object_flags flags = filc_aux_get_flags(aux);
     if ((flags & FILC_OBJECT_FLAG_GLOBAL))
