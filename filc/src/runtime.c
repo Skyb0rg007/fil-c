@@ -658,6 +658,46 @@ long zsys_syscall(long n, ...)
         callee = zsys_openat2;
         break;
 
+    /* The new mount API.  open_tree, move_mount, fsopen, fsconfig, fsmount, fspick,
+       mount_setattr, statmount, and listmount all have pizlonated wrappers that validate
+       pointers. */
+
+    case SYS_open_tree:
+        callee = zsys_open_tree;
+        break;
+
+    case SYS_move_mount:
+        callee = zsys_move_mount;
+        break;
+
+    case SYS_fsopen:
+        callee = zsys_fsopen;
+        break;
+
+    case SYS_fsconfig:
+        callee = zsys_fsconfig;
+        break;
+
+    case SYS_fsmount:
+        callee = zsys_fsmount;
+        break;
+
+    case SYS_fspick:
+        callee = zsys_fspick;
+        break;
+
+    case SYS_mount_setattr:
+        callee = zsys_mount_setattr;
+        break;
+
+    case SYS_statmount:
+        callee = zsys_statmount;
+        break;
+
+    case SYS_listmount:
+        callee = zsys_listmount;
+        break;
+
 	/* FIXME: Implement more syscalls! */
 
     default:

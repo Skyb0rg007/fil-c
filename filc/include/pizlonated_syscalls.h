@@ -314,6 +314,7 @@ int zsys_fsconfig(int fd, unsigned cmd, const char* key, const void* data, int a
 int zsys_fsmount(int fd, unsigned flags, unsigned ms_flags);
 int zsys_fsopen(const char* name, unsigned flags);
 int zsys_fspick(int fd, const char* path, unsigned flags);
+long zsys_listmount(const void* req, void* list, __SIZE_TYPE__ num, unsigned flags);
 int zsys_init_module(void* module_image, unsigned long len, const char* param_values);
 int zsys_finit_module(int fd, const char* param_values, int flags);
 int zsys_inotify_rm_watch(int fd, int wd);
@@ -329,6 +330,7 @@ int zsys_open_tree(int fd, const char* path, unsigned flags);
 int zsys_pidfd_open(int pid, unsigned flags);
 int zsys_pidfd_getfd(int pidfd, int targetfd, unsigned flags);
 int zsys_pivot_root(const char* new_root, const char* put_old);
+long zsys_statmount(const void* req, void* buf, __SIZE_TYPE__ bufsize, unsigned flags);
 int zsys_pidfd_send_signal(int pidfd, int sig, void* info, unsigned flags);
 long zsys_process_madvise(int pidfd, const void* iov, __SIZE_TYPE__ n, int advice, unsigned flags);
 int zsys_process_mrelease(int pidfd, unsigned flags);

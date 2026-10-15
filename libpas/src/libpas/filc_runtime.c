@@ -13073,10 +13073,38 @@ int filc_native_zsys_inotify_add_watch(filc_thread* my_thread, int fd, filc_ptr 
 #endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
+#if !PAS_GLIBC
+/* musl's sys/mount.h doesn't have the mount API constants.  These values are from the kernel's
+   UAPI (linux/mount.h) and glibc. */
+#define FSCONFIG_SET_FLAG 0
+#define FSCONFIG_SET_STRING 1
+#define FSCONFIG_SET_BINARY 2
+#define FSCONFIG_SET_PATH 3
+#define FSCONFIG_SET_PATH_EMPTY 4
+#define FSCONFIG_SET_FD 5
+#define FSCONFIG_CMD_CREATE 6
+#define FSCONFIG_CMD_RECONFIGURE 7
+#endif
+
+/* Kernel 6.6 added FSCONFIG_CMD_CREATE_EXCL.  Some libcs' headers don't have it yet (see also
+   util-linux's mountutils.h).  Defining it even when the libc has it as an enum constant is
+   harmless: the value is the same. */
+#ifndef FSCONFIG_CMD_CREATE_EXCL
+#define FSCONFIG_CMD_CREATE_EXCL 8
+#endif
+
 int filc_native_zsys_fsconfig(filc_thread* my_thread, int fd, unsigned cmd, filc_ptr key_ptr,
                               filc_ptr data_ptr, int aux)
 {
-#if PAS_GLIBC
+#if PAS_COSMO
+    PAS_UNUSED_PARAM(my_thread);
+    PAS_UNUSED_PARAM(fd);
+    PAS_UNUSED_PARAM(cmd);
+    PAS_UNUSED_PARAM(key_ptr);
+    PAS_UNUSED_PARAM(data_ptr);
+    PAS_UNUSED_PARAM(aux);
+    filc_internal_panic(NULL, "fsconfig not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
     void* data = NULL;
     bool need_key = true;
     switch (cmd) {
@@ -13141,6 +13169,21 @@ int filc_native_zsys_fsconfig(filc_thread* my_thread, int fd, unsigned cmd, filc
             NULL,
             "aux must be 0 for FSCONFIG_CMD_RECONFIGURE.");
         break;
+    case FSCONFIG_CMD_CREATE_EXCL:
+        need_key = false;
+        FILC_CHECK(
+            !filc_ptr_ptr(key_ptr),
+            NULL,
+            "key must be NULL for FSCONFIG_CMD_CREATE_EXCL.");
+        FILC_CHECK(
+            !filc_ptr_ptr(data_ptr),
+            NULL,
+            "data must be NULL for FSCONFIG_CMD_CREATE_EXCL.");
+        FILC_CHECK(
+            !aux,
+            NULL,
+            "aux must be 0 for FSCONFIG_CMD_CREATE_EXCL.");
+        break;
     default:
         filc_set_errno(EINVAL);
         return -1;
@@ -13148,57 +13191,64 @@ int filc_native_zsys_fsconfig(filc_thread* my_thread, int fd, unsigned cmd, filc
     char* key = NULL;
     if (need_key)
         key = filc_check_and_get_tmp_str(my_thread, key_ptr);
+#if PAS_GLIBC
     return FILC_SYSCALL(my_thread, fsconfig(fd, cmd, key, data, aux));
-#else /* PAS_GLIBC -> so !PAS_GLIBC. */
-    PAS_UNUSED_PARAM(my_thread);
-    PAS_UNUSED_PARAM(fd);
-    PAS_UNUSED_PARAM(cmd);
-    PAS_UNUSED_PARAM(key_ptr);
-    PAS_UNUSED_PARAM(data_ptr);
-    PAS_UNUSED_PARAM(aux);
-    filc_internal_panic(NULL, "fsconfig not supported.");
-    return -1;
-#endif /* PAS_GLIBC -> so end of !PAS_GLIBC. */
+#else
+    return FILC_SYSCALL(my_thread, syscall(SYS_fsconfig, fd, cmd, key, data, aux));
+#endif
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
 int filc_native_zsys_fsmount(filc_thread* my_thread, int fd, unsigned flags, unsigned ms_flags)
 {
-#if PAS_GLIBC
-    return FILC_SYSCALL(my_thread, fsmount(fd, flags, ms_flags));
-#else
+#if PAS_COSMO
     PAS_UNUSED_PARAM(my_thread);
     PAS_UNUSED_PARAM(fd);
     PAS_UNUSED_PARAM(flags);
     PAS_UNUSED_PARAM(ms_flags);
     filc_internal_panic(NULL, "fsmount not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+#if PAS_GLIBC
+    return FILC_SYSCALL(my_thread, fsmount(fd, flags, ms_flags));
+#else
+    return FILC_SYSCALL(my_thread, syscall(SYS_fsmount, fd, flags, ms_flags));
 #endif
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
 int filc_native_zsys_fsopen(filc_thread* my_thread, filc_ptr name_ptr, unsigned flags)
 {
-#if PAS_GLIBC
-    char* name = filc_check_and_get_tmp_str(my_thread, name_ptr);
-    return FILC_SYSCALL(my_thread, fsopen(name, flags));
-#else
+#if PAS_COSMO
     PAS_UNUSED_PARAM(my_thread);
     PAS_UNUSED_PARAM(name_ptr);
     PAS_UNUSED_PARAM(flags);
     filc_internal_panic(NULL, "fsopen not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    char* name = filc_check_and_get_tmp_str(my_thread, name_ptr);
+#if PAS_GLIBC
+    return FILC_SYSCALL(my_thread, fsopen(name, flags));
+#else
+    return FILC_SYSCALL(my_thread, syscall(SYS_fsopen, name, flags));
 #endif
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
 int filc_native_zsys_fspick(filc_thread* my_thread, int fd, filc_ptr path_ptr, unsigned flags)
 {
-#if PAS_GLIBC
-    char* path = filc_check_and_get_tmp_str(my_thread, path_ptr);
-    return FILC_SYSCALL(my_thread, fspick(fd, path, flags));
-#else
+#if PAS_COSMO
     PAS_UNUSED_PARAM(my_thread);
     PAS_UNUSED_PARAM(fd);
     PAS_UNUSED_PARAM(path_ptr);
     PAS_UNUSED_PARAM(flags);
     filc_internal_panic(NULL, "fspick not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    char* path = filc_check_and_get_tmp_str(my_thread, path_ptr);
+#if PAS_GLIBC
+    return FILC_SYSCALL(my_thread, fspick(fd, path, flags));
+#else
+    return FILC_SYSCALL(my_thread, syscall(SYS_fspick, fd, path, flags));
 #endif
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
 int filc_native_zsys_init_module(filc_thread* my_thread, filc_ptr module_image_ptr, unsigned long len,
@@ -13292,15 +13342,20 @@ int filc_native_zsys_mount(filc_thread* my_thread, filc_ptr source_ptr, filc_ptr
     return FILC_SYSCALL(my_thread, mount(source, target, fs_type, flags, data));
 }
 
+#if !PAS_GLIBC
+/* musl's sys/mount.h doesn't have the mount API. */
+struct mount_attr {
+    uint64_t attr_set;
+    uint64_t attr_clr;
+    uint64_t propagation;
+    uint64_t userns_fd;
+};
+#endif
+
 int filc_native_zsys_mount_setattr(filc_thread* my_thread, int fd, filc_ptr path_ptr, unsigned flags,
                                    filc_ptr attr_ptr, size_t size)
 {
-#if PAS_GLIBC
-    char* path = filc_check_and_get_tmp_str_or_null(my_thread, path_ptr);
-    filc_check_write(attr_ptr, size); /* maybe this can be check_read? */
-    return FILC_SYSCALL(my_thread, mount_setattr(fd, path, flags,
-                                                 (struct mount_attr*)filc_ptr_ptr(attr_ptr), size));
-#else
+#if PAS_COSMO
     PAS_UNUSED_PARAM(my_thread);
     PAS_UNUSED_PARAM(fd);
     PAS_UNUSED_PARAM(path_ptr);
@@ -13308,17 +13363,23 @@ int filc_native_zsys_mount_setattr(filc_thread* my_thread, int fd, filc_ptr path
     PAS_UNUSED_PARAM(attr_ptr);
     PAS_UNUSED_PARAM(size);
     filc_internal_panic(NULL, "mount_setattr not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    char* path = filc_check_and_get_tmp_str_or_null(my_thread, path_ptr);
+    filc_check_read(attr_ptr, size);
+#if PAS_GLIBC
+    return FILC_SYSCALL(my_thread, mount_setattr(fd, path, flags,
+                                                 (struct mount_attr*)filc_ptr_ptr(attr_ptr), size));
+#else
+    return FILC_SYSCALL(my_thread, syscall(SYS_mount_setattr, fd, path, flags,
+                                           (struct mount_attr*)filc_ptr_ptr(attr_ptr), size));
 #endif
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
 int filc_native_zsys_move_mount(filc_thread* my_thread, int from_fd, filc_ptr from_path_ptr,
                                 int to_fd, filc_ptr to_path_ptr, unsigned flags)
 {
-#if PAS_GLIBC
-    char* from_path = filc_check_and_get_tmp_str(my_thread, from_path_ptr);
-    char* to_path = filc_check_and_get_tmp_str(my_thread, to_path_ptr);
-    return FILC_SYSCALL(my_thread, move_mount(from_fd, from_path, to_fd, to_path, flags));
-#else
+#if PAS_COSMO
     PAS_UNUSED_PARAM(my_thread);
     PAS_UNUSED_PARAM(from_fd);
     PAS_UNUSED_PARAM(from_path_ptr);
@@ -13326,21 +13387,134 @@ int filc_native_zsys_move_mount(filc_thread* my_thread, int from_fd, filc_ptr fr
     PAS_UNUSED_PARAM(to_path_ptr);
     PAS_UNUSED_PARAM(flags);
     filc_internal_panic(NULL, "move_mount not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    char* from_path = filc_check_and_get_tmp_str(my_thread, from_path_ptr);
+    char* to_path = filc_check_and_get_tmp_str(my_thread, to_path_ptr);
+#if PAS_GLIBC
+    return FILC_SYSCALL(my_thread, move_mount(from_fd, from_path, to_fd, to_path, flags));
+#else
+    return FILC_SYSCALL(my_thread, syscall(SYS_move_mount, from_fd, from_path, to_fd, to_path,
+                                           flags));
 #endif
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
 int filc_native_zsys_open_tree(filc_thread* my_thread, int fd, filc_ptr path_ptr, unsigned flags)
 {
-#if PAS_GLIBC
-    char* path = filc_check_and_get_tmp_str(my_thread, path_ptr);
-    return FILC_SYSCALL(my_thread, open_tree(fd, path, flags));
-#else
+#if PAS_COSMO
     PAS_UNUSED_PARAM(my_thread);
     PAS_UNUSED_PARAM(fd);
     PAS_UNUSED_PARAM(path_ptr);
     PAS_UNUSED_PARAM(flags);
     filc_internal_panic(NULL, "open_tree not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    char* path = filc_check_and_get_tmp_str(my_thread, path_ptr);
+#if PAS_GLIBC
+    return FILC_SYSCALL(my_thread, open_tree(fd, path, flags));
+#else
+    return FILC_SYSCALL(my_thread, syscall(SYS_open_tree, fd, path, flags));
 #endif
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
+}
+
+static const size_t mnt_id_req_size_ver0 = 24;
+
+/* The kernel refuses to copy more than PAGE_SIZE bytes of the statmount/listmount request,
+   without reading any of it, so sizes above the kernel's page size get E2BIG.  Ask the OS
+   what its page size is, since Fil-C also runs on kernels with pages larger than 4096 bytes
+   (e.g. aarch64). */
+static size_t mnt_id_req_size_max(void)
+{
+    return pas_real_page_size();
+}
+
+long filc_native_zsys_statmount(filc_thread* my_thread, filc_ptr req_ptr, filc_ptr buf_ptr,
+                                size_t bufsize, unsigned flags)
+{
+#if PAS_COSMO
+    PAS_UNUSED_PARAM(my_thread);
+    PAS_UNUSED_PARAM(req_ptr);
+    PAS_UNUSED_PARAM(buf_ptr);
+    PAS_UNUSED_PARAM(bufsize);
+    PAS_UNUSED_PARAM(flags);
+    filc_internal_panic(NULL, "statmount not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    /* The kernel reads a 32-bit size from the first four bytes of the request and then copies
+       that many bytes of request.  So, we have to be sure that the caller really owns that much
+       memory, or the kernel would read out of bounds.  The kernel returns EINVAL for sizes less
+       than MNT_ID_REQ_SIZE_VER0 and E2BIG for sizes greater than PAGE_SIZE without reading
+       anything else, so we mirror those checks here. */
+    size_t req_size;
+
+    filc_check_read(req_ptr, sizeof(uint32_t));
+    memcpy(&req_size, filc_ptr_ptr(req_ptr), sizeof(uint32_t));
+    if (req_size < mnt_id_req_size_ver0) {
+        filc_set_errno(EINVAL);
+        return -1;
+    }
+    if (req_size > mnt_id_req_size_max()) {
+        filc_set_errno(E2BIG);
+        return -1;
+    }
+    filc_check_read(req_ptr, req_size);
+
+    /* The kernel writes at most bufsize bytes into buf and returns EOVERFLOW if the statmount
+       data does not fit, so checking write access to bufsize bytes is sufficient. */
+    filc_check_write(buf_ptr, bufsize);
+
+    /* The kernel re-reads the request's size field and then copies that many bytes of request.
+       If another thread modified the request between our check and the kernel's copy, the
+       kernel could read more than we validated.  So, we snapshot the request into a temporary
+       buffer that only we can see, and we overwrite the snapshot's size field with the size we
+       validated.  Now the kernel reads exactly req_size bytes from a req_size-byte buffer no
+       matter what any other thread does. */
+    void* req_copy = filc_bmalloc_allocate_tmp(my_thread, req_size);
+    memcpy(req_copy, filc_ptr_ptr(req_ptr), req_size);
+    *(uint32_t*)req_copy = (uint32_t)req_size;
+
+    return FILC_SYSCALL(
+        my_thread, syscall(SYS_statmount, req_copy, filc_ptr_ptr(buf_ptr), bufsize, flags));
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
+}
+
+long filc_native_zsys_listmount(filc_thread* my_thread, filc_ptr req_ptr, filc_ptr list_ptr,
+                                size_t num, unsigned flags)
+{
+#if PAS_COSMO
+    PAS_UNUSED_PARAM(my_thread);
+    PAS_UNUSED_PARAM(req_ptr);
+    PAS_UNUSED_PARAM(list_ptr);
+    PAS_UNUSED_PARAM(num);
+    PAS_UNUSED_PARAM(flags);
+    filc_internal_panic(NULL, "listmount not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    /* Same request validation dance as statmount. */
+    size_t req_size;
+
+    filc_check_read(req_ptr, sizeof(uint32_t));
+    memcpy(&req_size, filc_ptr_ptr(req_ptr), sizeof(uint32_t));
+    if (req_size < mnt_id_req_size_ver0) {
+        filc_set_errno(EINVAL);
+        return -1;
+    }
+    if (req_size > mnt_id_req_size_max()) {
+        filc_set_errno(E2BIG);
+        return -1;
+    }
+    filc_check_read(req_ptr, req_size);
+
+    /* The kernel writes at most num mount IDs, each 8 bytes.  filc_mul_size panics if the
+       multiplication would overflow. */
+    filc_check_write(list_ptr, filc_mul_size(num, sizeof(uint64_t)));
+
+    /* Same snapshot rationale as statmount, above. */
+    void* req_copy = filc_bmalloc_allocate_tmp(my_thread, req_size);
+    memcpy(req_copy, filc_ptr_ptr(req_ptr), req_size);
+    *(uint32_t*)req_copy = (uint32_t)req_size;
+
+    return FILC_SYSCALL(
+        my_thread, syscall(SYS_listmount, req_copy, filc_ptr_ptr(list_ptr), num, flags));
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
 int filc_native_zsys_pidfd_open(filc_thread* my_thread, int pid, unsigned flags)
