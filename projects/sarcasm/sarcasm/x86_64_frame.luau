@@ -696,6 +696,7 @@ function x86_64_frame.analyzeFrame(body, sigDesc, regions)
 		st.x86_saveStore = nil
 		st.x86_carrierLoad = nil
 		st.x86_leaSave = nil
+		st.x86_carrierCallArg = nil
 		st.x86_spSave = nil
 		st.x86_dropRestore = nil
 		st.x86_midSp = nil
@@ -2315,6 +2316,8 @@ function x86_64_frame.analyzeFrame(body, sigDesc, regions)
 				end
 			end
 		end
+		-- Recomputed on every transfer, so it reflects the converged state.
+		st.x86_carrierCallArg = nil
 		for name, e in pairs(smap) do
 			if not e.redefined and not e.slot and not e.roff and not e.conflict then
 				-- Count this instruction's modeled uses of the save register. Allowed
@@ -2349,6 +2352,24 @@ function x86_64_frame.analyzeFrame(body, sigDesc, regions)
 				local nUses = 0
 				for _, u in c.uses do
 					if u.kind == "reg" and u.rc == "gpr" and u.num == e.num then nUses += 1 end
+				end
+				-- An annotated hardware call reads its yolo argument registers
+				-- (the lift models them as uses only later, through callInfo), so
+				-- a carrier in one hands the callee the phantom value — the
+				-- dropped save. Without this, the call's poisoning below marked
+				-- the carrier redefined and the callee silently received whatever
+				-- the register held before the dropped save. The rejection is
+				-- deferred to the rewrite (see x86_carrierCallArg there): only the
+				-- final analysis knows whether a D9 frame promotion turned the
+				-- lea into region traffic, whose value the callee may legally
+				-- receive (sarcasm-frame-escape-push-alias-att).
+				if bb == "call" and st.localCall == nil and st.annotation then
+					local cs = sig.parseSignature(st.annotation, st)
+					for k = 1, cs.argWords do
+						if x86.CC.yoloArg(k, cs.argTypes) == e.num then
+							st.x86_carrierCallArg = { name = name, form = e.form }
+						end
+					end
 				end
 				-- A stack access through a stack+offset alias carrier (mov %rsp,
 				-- %reg / lea K(%rsp), %reg, then disp(%reg)): the register's
@@ -7210,6 +7231,18 @@ function x86_64_frame.rewrite(st, ctx)
 	-- inside the synthesized Fil-C frame (the frame-link restore would read garbage and
 	-- `ret` would pop a wild address). Reject it — frame setup must be the canonical
 	-- push %rbp / mov %rsp,%rbp / sub $imm,%rsp form the prologue analysis recognizes.
+	-- A stack-pointer carrier passed as a call argument (marked by the final
+	-- analysis; see the use check in analyzeFrame): the save that defined it
+	-- is dropped, so the callee would receive a stale register value.
+	local cca = st.x86_carrierCallArg
+	if cca then
+		err.at(st, "passing %" .. cca.name .. " to a call while it holds the"
+			.. " prologue `" .. (cca.form or "movq %rsp") .. ", %" .. cca.name
+			.. "` save cannot be proven safe (the save is dropped by the rewrite —"
+			.. " the register's stack value does not exist in the output; allocate"
+			.. " memory the callee may see with .alloca): " .. (st.raw or m))
+	end
+
 	if b == "enter" or b == "enterq" then
 		err.at(st, "`enter` is not supported (cannot prove safety; use the canonical"
 			.. " push %rbp / mov %rsp,%rbp / sub $imm,%rsp frame setup): " .. (st.raw or m))
