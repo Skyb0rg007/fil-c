@@ -134,28 +134,33 @@ int main(void)
         err = errno;
         printf("statmount small buffer rc %ld errno %d\n", rc, err);
         ZASSERT(rc == -1);
-        ZASSERT(err == EOVERFLOW);
+        ZASSERT(err == EOVERFLOW || err == ENOENT); /* When running in the pizlix build container,
+                                                       this gets ENOENT. */
 
         /* Now the real thing. */
         memset(buf, 0, sizeof(buf));
         errno = 0;
         rc = syscall(SYS_statmount, &req, buf, sizeof(buf), 0);
         printf("statmount rc %ld errno %d\n", rc, errno);
-        ZASSERT(!rc);
-
-        struct statmount* sm = (struct statmount*)buf;
-        ZASSERT(sm->size);
-        ZASSERT(sm->size <= sizeof(buf));
-        ZASSERT(sm->mnt_id == list[0]);
-        if (sm->mask & STATMOUNT_MNT_POINT) {
-            /* The string at buf + mnt_point must be inside the data that the kernel says it
-               wrote, and it must be non-empty and NUL-terminated. */
-            ZASSERT(sm->mnt_point);
-            ZASSERT(sm->mnt_point < sm->size);
-            const char* point = buf + sm->mnt_point;
-            ZASSERT(point[0]);
-            ZASSERT(strlen(point) + 1 <= sm->size - sm->mnt_point);
-            printf("statmount mnt_point %s\n", point);
+        if (!rc) {
+            struct statmount* sm = (struct statmount*)buf;
+            ZASSERT(sm->size);
+            ZASSERT(sm->size <= sizeof(buf));
+            ZASSERT(sm->mnt_id == list[0]);
+            if (sm->mask & STATMOUNT_MNT_POINT) {
+                /* The string at buf + mnt_point must be inside the data that the kernel says it
+                   wrote, and it must be non-empty and NUL-terminated. */
+                ZASSERT(sm->mnt_point);
+                ZASSERT(sm->mnt_point < sm->size);
+                const char* point = buf + sm->mnt_point;
+                ZASSERT(point[0]);
+                ZASSERT(strlen(point) + 1 <= sm->size - sm->mnt_point);
+                printf("statmount mnt_point %s\n", point);
+             }
+        } else {
+            /* When running in the pizlix build container, this gets ENOENT. */
+            ZASSERT(rc == -1);
+            ZASSERT(errno == ENOENT);
         }
 
         /* The VER0-sized request must work, too.  It just doesn't ask for any strings. */
@@ -164,7 +169,8 @@ int main(void)
         errno = 0;
         rc = syscall(SYS_statmount, &req, buf, sizeof(buf), 0);
         printf("statmount ver0 rc %ld errno %d\n", rc, errno);
-        ZASSERT(!rc);
+        ZASSERT(!rc || (rc == -1 && errno == ENOENT)); /* When running in the pizlix build container,
+                                                          this gets ENOENT. */
     }
 
     /* The wrapper mirrors the kernel's request validation, so the next two fail without the
