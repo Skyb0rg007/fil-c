@@ -39,13 +39,13 @@ DEFINE_ALLOCATOR_WITH_HEAP_IDENTIFIER(BitVector);
 
 void BitVector::setSlow(const BitVector& other)
 {
-    uintptr_t newBitsOrPointer;
+    void* newBitsOrPointer;
     if (other.isInline() || other.isEmptyOrDeletedValue())
         newBitsOrPointer = other.m_bitsOrPointer;
     else {
         OutOfLineBits* newOutOfLineBits = OutOfLineBits::create(other.size());
         memcpy(newOutOfLineBits->bits(), other.bits(), byteCount(other.size()));
-        newBitsOrPointer = bitwise_cast<uintptr_t>(newOutOfLineBits) >> 1;
+        newBitsOrPointer = zmkptr(newOutOfLineBits, bitwise_cast<uintptr_t>(newOutOfLineBits) >> 1);
     }
     if (!isInline() && !isEmptyOrDeletedValue())
         OutOfLineBits::destroy(outOfLineBits());
@@ -105,7 +105,7 @@ void BitVector::resizeOutOfLine(size_t numBits, size_t shiftInWords)
     if (isInline()) {
         memset(newOutOfLineBits->bits(), 0, shiftInWords * sizeof(void*));
         // Make sure that all of the bits are zero in case we do a no-op resize.
-        *(newOutOfLineBits->bits() + shiftInWords) = m_bitsOrPointer & ~(static_cast<uintptr_t>(1) << maxInlineBits());
+        *(newOutOfLineBits->bits() + shiftInWords) = *inlineBits() & ~(static_cast<uintptr_t>(1) << maxInlineBits());
         RELEASE_ASSERT(shiftInWords + 1 <= newNumWords);
         memset(newOutOfLineBits->bits() + shiftInWords + 1, 0, (newNumWords - 1 - shiftInWords) * sizeof(void*));
     } else {
@@ -119,7 +119,7 @@ void BitVector::resizeOutOfLine(size_t numBits, size_t shiftInWords)
             memcpy(newOutOfLineBits->bits(), outOfLineBits()->bits(), newOutOfLineBits->numWords() * sizeof(void*));
         OutOfLineBits::destroy(outOfLineBits());
     }
-    m_bitsOrPointer = bitwise_cast<uintptr_t>(newOutOfLineBits) >> 1;
+    m_bitsOrPointer = zmkptr(newOutOfLineBits, bitwise_cast<uintptr_t>(newOutOfLineBits) >> 1);
 }
 
 void BitVector::mergeSlow(const BitVector& other)
@@ -150,8 +150,8 @@ void BitVector::filterSlow(const BitVector& other)
     
     if (isInline()) {
         ASSERT(!other.isInline());
-        m_bitsOrPointer &= *other.outOfLineBits()->bits();
-        m_bitsOrPointer |= (static_cast<uintptr_t>(1) << maxInlineBits());
+        *inlineBits() &= *other.outOfLineBits()->bits();
+        *inlineBits() |= (static_cast<uintptr_t>(1) << maxInlineBits());
         ASSERT(isInline());
         return;
     }
@@ -175,8 +175,8 @@ void BitVector::excludeSlow(const BitVector& other)
     
     if (isInline()) {
         ASSERT(!other.isInline());
-        m_bitsOrPointer &= ~*other.outOfLineBits()->bits();
-        m_bitsOrPointer |= (static_cast<uintptr_t>(1) << maxInlineBits());
+        *inlineBits() &= ~*other.outOfLineBits()->bits();
+        *inlineBits() |= (static_cast<uintptr_t>(1) << maxInlineBits());
         ASSERT(isInline());
         return;
     }

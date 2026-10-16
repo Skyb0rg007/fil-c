@@ -222,7 +222,7 @@ public:
             mergeSlow(other);
             return;
         }
-        m_bitsOrPointer |= other.m_bitsOrPointer;
+        *inlineBits() |= *other.inlineBits();
         ASSERT(isInline());
     }
     
@@ -232,7 +232,7 @@ public:
             filterSlow(other);
             return;
         }
-        m_bitsOrPointer &= other.m_bitsOrPointer;
+        *inlineBits() &= *other.inlineBits();
         ASSERT(isInline());
     }
     
@@ -242,8 +242,8 @@ public:
             excludeSlow(other);
             return;
         }
-        m_bitsOrPointer &= ~other.m_bitsOrPointer;
-        m_bitsOrPointer |= (static_cast<uintptr_t>(1) << maxInlineBits());
+        *inlineBits() &= ~*other.inlineBits();
+        *inlineBits() |= (static_cast<uintptr_t>(1) << maxInlineBits());
         ASSERT(isInline());
     }
     
@@ -280,19 +280,19 @@ public:
     enum DeletedValueTag { DeletedValue };
     
     BitVector(EmptyValueTag)
-        : m_bitsOrPointer(0)
+        : m_bitsOrPointer(nullptr)
     {
     }
     
     BitVector(DeletedValueTag)
-        : m_bitsOrPointer(1)
+        : m_bitsOrPointer(reinterpret_cast<void*>(1))
     {
     }
     
     bool isEmptyValue() const { return !m_bitsOrPointer; }
-    bool isDeletedValue() const { return m_bitsOrPointer == 1; }
+    bool isDeletedValue() const { return m_bitsOrPointer == reinterpret_cast<void*>(1); }
     
-    bool isEmptyOrDeletedValue() const { return m_bitsOrPointer <= 1; }
+    bool isEmptyOrDeletedValue() const { return m_bitsOrPointer <= reinterpret_cast<void*>(1); }
     
     bool operator==(const BitVector& other) const
     {
@@ -391,15 +391,15 @@ private:
         return (bitCount + 7) >> 3;
     }
 
-    static uintptr_t makeInlineBits(uintptr_t bits)
+    static void* makeInlineBits(uintptr_t bits)
     {
         ASSERT(!(bits & (static_cast<uintptr_t>(1) << maxInlineBits())));
-        return bits | (static_cast<uintptr_t>(1) << maxInlineBits());
+        return reinterpret_cast<void*>(bits | (static_cast<uintptr_t>(1) << maxInlineBits()));
     }
     
-    static uintptr_t cleanseInlineBits(uintptr_t bits)
+    static uintptr_t cleanseInlineBits(void* bits)
     {
-        return bits & ~(static_cast<uintptr_t>(1) << maxInlineBits());
+        return reinterpret_cast<uintptr_t>(bits) & ~(static_cast<uintptr_t>(1) << maxInlineBits());
     }
     
     static size_t bitCount(uintptr_t bits)
@@ -413,7 +413,7 @@ private:
     {
         if (isInline()) {
             size_t index = startIndex;
-            findBitInWord(m_bitsOrPointer, index, maxInlineBits(), value);
+            findBitInWord(reinterpret_cast<uintptr_t>(m_bitsOrPointer), index, maxInlineBits(), value);
             return index;
         }
         
@@ -472,10 +472,10 @@ private:
         size_t m_numBits;
     };
     
-    bool isInline() const { return m_bitsOrPointer >> maxInlineBits(); }
+    bool isInline() const { return reinterpret_cast<uintptr_t>(m_bitsOrPointer) >> maxInlineBits(); }
     
-    const OutOfLineBits* outOfLineBits() const { return bitwise_cast<const OutOfLineBits*>(m_bitsOrPointer << 1); }
-    OutOfLineBits* outOfLineBits() { return bitwise_cast<OutOfLineBits*>(m_bitsOrPointer << 1); }
+    const OutOfLineBits* outOfLineBits() const { return static_cast<const OutOfLineBits*>(zmkptr(m_bitsOrPointer, reinterpret_cast<uintptr_t>(m_bitsOrPointer) << 1)); }
+    OutOfLineBits* outOfLineBits() { return static_cast<OutOfLineBits*>(zmkptr(m_bitsOrPointer, reinterpret_cast<uintptr_t>(m_bitsOrPointer) << 1)); }
     
     WTF_EXPORT_PRIVATE void resizeOutOfLine(size_t numBits, size_t shiftInWords = 0);
     WTF_EXPORT_PRIVATE void setSlow(const BitVector& other);
@@ -491,22 +491,25 @@ private:
     bool equalsSlowCaseFast(const BitVector& other) const;
     bool equalsSlowCaseSimple(const BitVector& other) const;
     WTF_EXPORT_PRIVATE uintptr_t hashSlowCase() const;
+
+    uintptr_t* inlineBits() { return reinterpret_cast<uintptr_t*>(&m_bitsOrPointer); }
+    const uintptr_t* inlineBits() const { return reinterpret_cast<const uintptr_t*>(&m_bitsOrPointer); }
     
     uintptr_t* bits()
     {
         if (isInline())
-            return &m_bitsOrPointer;
+            return inlineBits();
         return outOfLineBits()->bits();
     }
     
     const uintptr_t* bits() const
     {
         if (isInline())
-            return &m_bitsOrPointer;
+            return inlineBits();
         return outOfLineBits()->bits();
     }
     
-    uintptr_t m_bitsOrPointer;
+    void* m_bitsOrPointer;
 };
 
 struct BitVectorHash {
