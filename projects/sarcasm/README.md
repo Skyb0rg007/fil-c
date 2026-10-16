@@ -188,6 +188,9 @@ are one annotation away:
   `.quad label` pointer initializers are a compile-time rejection. A
   `.comm name,size,align` becomes a strong writable definition (documented
   semantic change: commons lose cross-module merging).
+- `.rept N` ... `.endr` blocks (nesting allowed) are expanded before any
+  other analysis, in data and code alike, exactly as GNU as repeats them; an
+  unmatched `.rept` or `.endr` is a compile-time rejection.
 - References to same-file data need no annotation: `leaq tab(%rip),%r` seeds
   a checked pointer (indexed table traffic just works), direct accesses like
   `movl g+4(%rip),%r` or `movdqa K256+512(%rip),%xmm7` run the ordinary
