@@ -7826,7 +7826,8 @@ filc_ptr pizlonated___cpu_features2(filc_thread* my_thread, const filc_origin* p
 
 static bool setjmp_saves_sigmask = false;
 
-filc_jmp_buf* filc_jmp_buf_create(filc_thread* my_thread, filc_jmp_buf_kind kind, int value)
+filc_jmp_buf* filc_jmp_buf_recreate(filc_thread* my_thread, filc_jmp_buf** jmp_buf_ptr,
+                                    filc_jmp_buf_kind kind, int value)
 {
     static const bool verbose = false;
     
@@ -7842,30 +7843,46 @@ filc_jmp_buf* filc_jmp_buf_create(filc_thread* my_thread, filc_jmp_buf_kind kind
     PAS_ASSERT(!function_origin->num_stack_auxes); /* We currently don't support the nonescaping
                                                       alloca optimization for functions that do
                                                       setjmp, yet. */
+    filc_jmp_buf* result;
+    if (*jmp_buf_ptr) {
+        /* Every time a static occurrence of a setjmp within a frame reexecutes, we overwrite the
+           previous jmp_buf. This ensures that we never jump back in time in a loop, which in turn
+           avoids all kinds of issues:
+           
+           - State in callee saves travels back in time while state in spills does not, leading to
+             possible miscompiles.
+           - State in lowers travels back in time due to lowers restoration, but spilled lowers do
+             not, leading to GC root issues. */
+        
+        result = *jmp_buf_ptr;
+        PAS_ASSERT(result->kind == kind);
+        PAS_ASSERT(result->saved_top_frame == frame);
+        PAS_ASSERT(result->saved_top_native_frame == my_thread->top_native_frame);
+        PAS_ASSERT(result->saved_allocation_roots_size == my_thread->allocation_roots.size);
+        PAS_ASSERT(result->num_lowers == function_origin->base.num_lowers_ish);
+    } else {
+        result = (filc_jmp_buf*)filc_object_special_payload_with_manual_tracking(
+            filc_allocate_special(my_thread,
+                                  filc_add_size(
+                                      PAS_OFFSETOF(filc_jmp_buf, lowers),
+                                      filc_mul_size(function_origin->base.num_lowers_ish,
+                                                    sizeof(void*))),
+                                  1,
+                                  FILC_SPECIAL_TYPE_JMP_BUF));
+        *jmp_buf_ptr = result;
+        result->kind = kind; /* We save the kind because it lets us do a safety check, but that check
+                                isn't needed for memory safety, so we could drop it. */
+        result->saved_top_frame = frame;
+        /* NOTE: We could possibly do more stuff to track the state of the top native frame, but we
+           don't, because frames that create native frames don't setjmp. Basically, native code
+           doesn't setjmp. */
+        filc_native_frame_assert_locked(my_thread->top_native_frame);
+        result->saved_top_native_frame = my_thread->top_native_frame;
+        result->saved_allocation_roots_size = my_thread->allocation_roots.size;
+        result->num_lowers = function_origin->base.num_lowers_ish;
+    }
     
-    filc_jmp_buf* result = (filc_jmp_buf*)filc_object_special_payload_with_manual_tracking(
-        filc_allocate_special(my_thread,
-                              filc_add_size(
-                                  PAS_OFFSETOF(filc_jmp_buf, lowers),
-                                  filc_mul_size(function_origin->base.num_lowers_ish, sizeof(void*))),
-                              1,
-                              FILC_SPECIAL_TYPE_JMP_BUF));
-
-    result->kind = kind; /* We save the kind because it lets us do a safety check, but that check isn't
-                            needed for memory safety, so we could drop it. */
-    result->saved_top_frame = frame;
-    /* NOTE: We could possibly do more stuff to track the state of the top native frame, but we don't,
-       because frames that create native frames don't setjmp. Basically, native code doesn't setjmp. */
-    filc_native_frame_assert_locked(my_thread->top_native_frame);
-    result->saved_top_native_frame = my_thread->top_native_frame;
-    result->saved_allocation_roots_size = my_thread->allocation_roots.size;
     result->saved_special_signal_deferral_depth = my_thread->special_signal_deferral_depth;
-
-    /* NOTE: The jmp_buf tracking lowers is necessary for setjmp's that aren't in loops
-       and for ABI reasons for setjmp's that are in loops (and code compiled with older
-       versions of the compiler has a GC root bug for setjmps in loops due to reliance
-       on this mechanism). */
-    result->num_lowers = function_origin->base.num_lowers_ish;
     size_t index;
     for (index = function_origin->base.num_lowers_ish; index--;) {
         filc_store_barrier(my_thread, filc_object_for_lower(frame->lowers[index]));
@@ -7916,21 +7933,16 @@ void filc_native_zlongjmp(filc_thread* my_thread, filc_ptr jmp_buf_ptr, int valu
             filc_origin_get_function_origin(current_frame->origin);
         PAS_ASSERT(function_origin);
         PAS_ASSERT(function_origin->base.num_lowers_ish < UINT_MAX);
-        if (!function_origin->has_setjmps)
-            continue;
-        PAS_ASSERT(function_origin->base.num_lowers_ish);
-        filc_weak_map* weak_map =
-            (filc_weak_map*)current_frame->lowers[function_origin->base.num_lowers_ish - 1];
-        PAS_ASSERT(filc_object_special_type(filc_object_for_special_payload(weak_map))
-                   == FILC_SPECIAL_TYPE_WEAK_MAP);
-        filc_ptr result = filc_weak_map_get(
-            weak_map, filc_ptr_for_special_payload_with_manual_tracking(jmp_buf));
-        PAS_ASSERT(!filc_ptr_lower(result));
-        PAS_ASSERT(!filc_ptr_ptr(result) || filc_ptr_ptr(result) == (void*)(uintptr_t)1);
-        if (filc_ptr_ptr(result)) {
-            PAS_ASSERT(current_frame == jmp_buf->saved_top_frame);
-            found_frame = true;
-            break;
+        PAS_ASSERT(function_origin->num_setjmps <= function_origin->base.num_lowers_ish);
+        unsigned index;
+        for (index = function_origin->num_setjmps; index-- && !found_frame;) {
+            unsigned lower_index = function_origin->base.num_lowers_ish - 1 - index;
+            PAS_ASSERT(lower_index < function_origin->base.num_lowers_ish);
+            if (jmp_buf == current_frame->lowers[lower_index]) {
+                PAS_ASSERT(current_frame == jmp_buf->saved_top_frame);
+                found_frame = true;
+                break;
+            }
         }
     }
 
@@ -7949,17 +7961,18 @@ void filc_native_zlongjmp(filc_thread* my_thread, filc_ptr jmp_buf_ptr, int valu
     my_thread->allocation_roots.size = jmp_buf->saved_allocation_roots_size;
 
     PAS_ASSERT(my_thread->top_frame == jmp_buf->saved_top_frame);
-    PAS_ASSERT(filc_origin_get_function_origin(my_thread->top_frame->origin)->base.num_lowers_ish
-               == jmp_buf->num_lowers);
-
-    /* NOTE: The callsite will overwrite the lowers in cases where we get them wrong. That only happens
-       for setjmps that are in loops.
-    
-       Ideally, we wouldn't do this overwrite for jmp_bufs corresponding to setjmps that are in loops,
-       since the live state for those jmp_bufs is in unique lowers slots. */
+    const filc_function_origin* function_origin =
+        filc_origin_get_function_origin(my_thread->top_frame->origin);
+    PAS_ASSERT(function_origin->base.num_lowers_ish == jmp_buf->num_lowers);
     size_t index;
-    for (index = jmp_buf->num_lowers; index--;)
+    for (index = jmp_buf->num_lowers; index--;) {
+        if (filc_function_origin_lower_index_is_setjmp(function_origin, index)) {
+            PAS_ASSERT(my_thread->top_frame->lowers[index] == jmp_buf->lowers[index] ||
+                       !jmp_buf->lowers[index]);
+            continue;
+        }
         my_thread->top_frame->lowers[index] = jmp_buf->lowers[index];
+    }
 
     PAS_ASSERT(my_thread->special_signal_deferral_depth
                >= jmp_buf->saved_special_signal_deferral_depth);

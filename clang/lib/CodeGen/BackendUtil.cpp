@@ -80,7 +80,6 @@
 #include "llvm/Transforms/Instrumentation/KCFI.h"
 #include "llvm/Transforms/Instrumentation/KillUB.h"
 #include "llvm/Transforms/Instrumentation/LowerAllowCheckPass.h"
-#include "llvm/Transforms/Instrumentation/MakeSetjmpsGreatAgain.h"
 #include "llvm/Transforms/Instrumentation/MemProfiler.h"
 #include "llvm/Transforms/Instrumentation/MemorySanitizer.h"
 #include "llvm/Transforms/Instrumentation/NumericalStabilitySanitizer.h"
@@ -1138,7 +1137,6 @@ void EmitAssemblyHelper::RunOptimizationPipeline(
                                           OptimizationLevel Level,
                                           ThinOrFullLTOPhase) {
       MPM.addPass(DeleteRedundantPollchecksPass());
-      MPM.addPass(MakeSetjmpsGreatAgainPass());
     });
 
     if (LangOpts.ObjCAutoRefCount) {

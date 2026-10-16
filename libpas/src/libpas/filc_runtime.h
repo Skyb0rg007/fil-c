@@ -278,7 +278,8 @@ typedef uintptr_t filc_word;
         .personality_getter = NULL, \
         .can_throw = true, \
         .can_catch = (passed_can_catch), \
-        .has_setjmps = false \
+        .num_setjmps = 0, \
+        .num_stack_auxes = 0 \
     }; \
     static const filc_origin origin_name = { \
         .origin_node = &function_ ## origin_name.base, \
@@ -508,14 +509,12 @@ struct filc_function_origin {
        unwinding isn't allowed. Most native frames are !can_catch. */
     bool can_catch;
 
-    /* Tells if we have setjmps. If we do, then the last lower is a weak_map used as a set of setjmps
-       for that frame.
-    
-       FIXME: We could use a bespoke weak set for this purpose and it would be faster! */
-    bool has_setjmps;
+    /* The number of setjmps in the given function's frame. These are always the highest-indexed
+       object slots. */
+    unsigned num_setjmps;
 
     /* Tells how many of the lowers are actually pointers to stack-allocated auxes. If we have any
-       then they are at the end of the lowers, but just below the setjmp lower, if there is one. */
+       then they are at the end of the lowers, but just below the setjmp lowers. */
     unsigned num_stack_auxes;
 };
 
@@ -2182,9 +2181,7 @@ static inline unsigned filc_function_origin_stack_aux_end_index(const filc_funct
 {
     unsigned end = origin->base.num_lowers_ish;
     PAS_ASSERT(end < UINT_MAX);
-    if (origin->has_setjmps)
-        end--;
-    return end;
+    return end - origin->num_setjmps;
 }
 
 static inline unsigned filc_function_origin_stack_aux_begin_index(const filc_function_origin* origin)
@@ -2198,6 +2195,24 @@ static inline bool filc_function_origin_lower_index_is_stack_aux(const filc_func
     PAS_ASSERT(index < origin->base.num_lowers_ish);
     return index >= filc_function_origin_stack_aux_begin_index(origin)
         && index < filc_function_origin_stack_aux_end_index(origin);
+}
+
+static inline unsigned filc_function_origin_setjmp_end_index(const filc_function_origin* origin)
+{
+    return origin->base.num_lowers_ish;
+}
+
+static inline unsigned filc_function_origin_setjmp_begin_index(const filc_function_origin* origin)
+{
+    return filc_function_origin_setjmp_end_index(origin) - origin->num_setjmps;
+}
+
+static inline bool filc_function_origin_lower_index_is_setjmp(const filc_function_origin* origin,
+                                                              unsigned index)
+{
+    PAS_ASSERT(index < origin->base.num_lowers_ish);
+    return index >= filc_function_origin_setjmp_begin_index(origin)
+        && index < filc_function_origin_setjmp_end_index(origin);
 }
 
 /* This dumps just the origin itself, not its entire inline stack. */
@@ -4423,7 +4438,8 @@ static inline const char* filc_jmp_buf_kind_get_longjmp_string(filc_jmp_buf_kind
 
 /* This creates all of the filc_jmp_buf except for the system_buf, which must be populated by the
    caller. The `value` argument is ignored unless kind is sigsetjmp. */
-filc_jmp_buf* filc_jmp_buf_create(filc_thread* my_thread, filc_jmp_buf_kind kind, int value);
+filc_jmp_buf* filc_jmp_buf_recreate(filc_thread* my_thread, filc_jmp_buf** jmp_buf_ptr,
+                                    filc_jmp_buf_kind kind, int value);
 
 #if FILC_HAS_FIBER_CONTEXT
 static inline const char* filc_fiber_context_state_get_string(filc_fiber_context_state state)

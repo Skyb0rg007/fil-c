@@ -423,9 +423,9 @@ static PAS_ALWAYS_INLINE void filc_mark_outgoing_ptrs_in_frames(filc_frame* top_
         if (verbose) {
             pas_log("Marking roots in frame %p for ", frame);
             filc_origin_dump_all_inline(frame->origin, "; ", pas_log_stream);
-            pas_log(" with num_lowers_ish = %u, has_setjmps = %s, num_stack_auxes = %u\n",
+            pas_log(" with num_lowers_ish = %u, num_setjmps = %u, num_stack_auxes = %u\n",
                     function_origin->base.num_lowers_ish,
-                    function_origin->has_setjmps ? "yes" : "no",
+                    function_origin->num_setjmps,
                     function_origin->num_stack_auxes);
         }
         PAS_ASSERT(function_origin->base.num_lowers_ish < UINT_MAX);

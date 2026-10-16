@@ -15,7 +15,6 @@
 #include <llvm/Analysis/CFG.h>
 #include <llvm/Demangle/Demangle.h>
 #include <llvm/IR/Comdat.h>
-#include <llvm/IR/CycleInfo.h>
 #include <llvm/IR/DebugInfo.h>
 #include <llvm/IR/InlineAsm.h>
 #include <llvm/IR/IRBuilder.h>
@@ -343,6 +342,8 @@ template<> struct std::hash<InlineFrameKey> {
 };
 
 namespace {
+
+static constexpr size_t NumSpecialFrameObjects = 0;
 
 enum class MATokenKind {
   None,
@@ -1580,7 +1581,7 @@ class Pizlonator {
   FunctionCallee RealMemmove;
   FunctionCallee LandingPad;
   FunctionCallee ResumeUnwind;
-  FunctionCallee JmpBufCreate;
+  FunctionCallee JmpBufRecreate;
   FunctionCallee PromoteAlreadyCheckedStackToHeapWithoutExiting;
   FunctionCallee PromoteAlreadyCheckedStackToHeapWithAlignmentWithoutExiting;
   FunctionCallee DemoteWordAlignedAlreadyCheckedHeapToStackWithoutExiting;
@@ -1591,8 +1592,6 @@ class Pizlonator {
   FunctionCallee CCRetsCheckFailure;
   FunctionCallee AllocateThreadLocal;
   FunctionCallee AllocateThreadLocalWithPtrs;
-  FunctionCallee WeakMapCreate;
-  FunctionCallee WeakMapSet;
   FunctionCallee _Setjmp;
   FunctionCallee ExpectI1;
   FunctionCallee LifetimeStart;
@@ -1619,8 +1618,7 @@ class Pizlonator {
   std::unordered_map<EHDataKey, GlobalVariable*> EHDatas; /* the value is a high-level GV, need to
                                                              lookup the getter. */
   std::unordered_map<Constant*, int> EHTypeIDs;
-  bool HasSetjmps;
-  size_t SetjmpSetFrameIndex;
+  std::unordered_map<CallBase*, unsigned> Setjmps;
   std::unordered_map<Type*, Constant*> CCTypes;
   std::unordered_map<Instruction*, std::vector<AccessCheckWithDI>> ChecksForInst;
   std::unordered_map<OptimizedAccessCheckOriginKey, GlobalVariable*> OptimizedAccessCheckOrigins;
@@ -1660,7 +1658,6 @@ class Pizlonator {
   std::unordered_map<Instruction*, std::vector<Type*>> InstTypeVectors;
   std::unordered_map<InvokeInst*, LandingPadInst*> LPIs;
   std::unordered_set<CallInst*> FramePoppingMustTails;
-  std::unordered_map<Instruction*, std::vector<Value*>> SetjmpLiveForRefresh; 
 
   std::unordered_map<uint64_t, Function*> CallerEntrypointThunks;
   std::unordered_map<uint64_t, Function*> CalleeEntrypointThunks;
@@ -1687,7 +1684,6 @@ class Pizlonator {
   std::unordered_map<ValuePtr, FrameEntry> FrameIndexMap;
   size_t FrameSize { SIZE_MAX };
   size_t NumStackAuxes { SIZE_MAX };
-  size_t FrameSizeForSetjmpRefresh { SIZE_MAX };
   Value* Frame;
 
   std::vector<Instruction*> ToErase;
@@ -1744,6 +1740,7 @@ class Pizlonator {
     }
     
     bool CanThrow = !OldF->doesNotThrow();
+    unsigned NumSetjmps = Setjmps.size();
 
     assert(FrameSize < UINT_MAX);
     assert(NumStackAuxes < UINT_MAX);
@@ -1762,7 +1759,7 @@ class Pizlonator {
             Filename.size() ? getString(Filename) : RawNull,
             ConstantInt::get(Int32Ty, FrameSize) }),
         Personality, ConstantInt::get(Int8Ty, CanThrow), ConstantInt::get(Int8Ty, CanCatch),
-        ConstantInt::get(Int8Ty, HasSetjmps), ConstantInt::get(Int32Ty, NumStackAuxes) });
+        ConstantInt::get(Int32Ty, NumSetjmps), ConstantInt::get(Int32Ty, NumStackAuxes) });
     GlobalVariable* Result = new GlobalVariable(
       M, FunctionOriginTy, true, GlobalVariable::PrivateLinkage, C, "filc_function_origin");
     Result->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
@@ -2893,18 +2890,15 @@ class Pizlonator {
     return false;
   }
 
-  void computeFrameIndexMap(const std::vector<BasicBlock*>& Blocks,
-                            const std::unordered_set<BasicBlock*>& CycleBlocks) {
+  void computeFrameIndexMap(const std::vector<BasicBlock*>& Blocks) {
     assert(FrameSize == SIZE_MAX);
     assert(NumStackAuxes == SIZE_MAX);
     
     FrameIndexMap.clear();
-    FrameSize = 0;
+    FrameSize = NumSpecialFrameObjects;
     NumStackAuxes = 0;
-    HasSetjmps = false;
+    Setjmps.clear();
     UsesVastartOrZargs = false;
-    SetjmpSetFrameIndex = SIZE_MAX;
-    SetjmpLiveForRefresh.clear();
 
     assert(!Blocks.empty());
 
@@ -3002,7 +2996,6 @@ class Pizlonator {
     }
 
     std::unordered_map<ValuePtr, std::unordered_set<ValuePtr>> Interference;
-    std::unordered_set<Value*> LiveAtSetjmpInLoop;
 
     for (size_t BlockIndex = Blocks.size(); BlockIndex--;) {
       BasicBlock* BB = Blocks[BlockIndex];
@@ -3010,15 +3003,6 @@ class Pizlonator {
       
       for (auto It = BB->rbegin(); It != BB->rend(); ++It) {
         Instruction* I = &*It;
-
-        if (isSetjmpCall(I) && CycleBlocks.count(BB)) {
-          std::vector<Value*> LiveVec;
-          for (Value* V : Live) {
-            LiveVec.push_back(V);
-            LiveAtSetjmpInLoop.insert(V);
-          }
-          SetjmpLiveForRefresh[I] = LiveVec;
-        }
 
         Instruction* Defined = nullptr;
         if (LifetimeMarker LM = analyzeLifetimeMarker(I)) {
@@ -3107,27 +3091,9 @@ class Pizlonator {
       }
     }
 
-    // Everything live at a setjmp that's in a loop interferes with everything else.
-    // -> If something is live in a setjmp, but the setjmp is not in a loop, then when we jump to
-    //    the jmp_buf, we'll restore the jmp_buf's lowers in zlongjmp and that's it.
-    // -> If something is live in a setjmp and the setjmp is in a loop, then we'll make sure that it
-    //    interferes with everything - so it'll have its own unique slots in the lowers. Setjmps in
-    //    loops restore their lowers upon return (overwriting what zlongjmp did). That mechanism is
-    //    only sound if any GC scan performed between the setjmp and longjmp saw those values saved in
-    //    the lowers. Doing this interference ensures that if we had other live state later in the
-    //    loop, that live state won't overwrite the lowers used by the state live across the setjmp.
-    for (Value* V : LiveAtSetjmpInLoop) {
-      for (size_t PtrIndex = countPtrsForValue(V); PtrIndex--;) {
-        for (ValuePtr OtherVP : Order) {
-          Interference[ValuePtr(V, PtrIndex)].insert(OtherVP);
-          Interference[OtherVP].insert(ValuePtr(V, PtrIndex));
-        }
-      }
-    }
-
     for (ValuePtr IP : Order) {
       const std::unordered_set<ValuePtr>& Adjacency = Interference[IP];
-      for (size_t FrameIndex = 0; ; FrameIndex++) {
+      for (size_t FrameIndex = NumSpecialFrameObjects; ; FrameIndex++) {
         bool Ok = true;
         for (ValuePtr AIP : Adjacency) {
           if (FrameIndexMap.count(AIP) && FrameIndexMap[AIP].Index == FrameIndex) {
@@ -3260,8 +3226,6 @@ class Pizlonator {
              << ", FrameSize = " << FrameSize << "\n";
     }
 
-    FrameSizeForSetjmpRefresh = FrameSize;
-
     for (BasicBlock* BB : Blocks) {
       for (Instruction& I : *BB) {
         if (CallBase* CI = dyn_cast<CallBase>(&I)) {
@@ -3269,26 +3233,11 @@ class Pizlonator {
             if (isSetjmp(F)) {
               assert(CI->hasFnAttr(Attribute::ReturnsTwice));
               assert(F->hasFnAttribute(Attribute::ReturnsTwice));
-              if (!HasSetjmps) {
-                SetjmpSetFrameIndex = FrameSize++;
-                HasSetjmps = true;
-              }
+              Setjmps[CI] = FrameSize++;
             }
           }
         }
       }
-    }
-  }
-
-  template<typename Func>
-  void forEachValuePtr(Value* V, const Func& F) {
-    for (unsigned Index = countPtrsForValue(V); Index--;) {
-      assert(pointerKindDirect(V) != PointerKind::LocalExplicit);
-      F(ValuePtr(V, Index));
-    }
-    if (pointerKindDirect(V) == PointerKind::LocalExplicit) {
-      assert(!countPtrsForValue(V));
-      F(ValuePtr(V, 0));
     }
   }
 
@@ -3326,6 +3275,7 @@ class Pizlonator {
       case FrameEntryKind::Ignored:
         break;
       case FrameEntryKind::Lower:
+        assert(FE.Index >= NumSpecialFrameObjects);
         recordLowerAtIndex(flightPtrLower(V, InsertBefore), FE.Index, InsertBefore);
         break;
       default:
@@ -3380,30 +3330,6 @@ class Pizlonator {
 
   void recordLowers(Value* V, Instruction* InsertBefore) {
     recordLowers(V, V->getType(), V, InsertBefore);
-  }
-
-  void recordLowersForInstruction(Instruction* I, Instruction* InsertBefore) {
-    if (isSetjmpCall(I) && SetjmpLiveForRefresh[I].size()) {
-      // FIXME: This is only necessary to maintain ABI compatibility with versions of
-      // the runtime that will overwrite the lowers in zlongjmp unconditionaly. In this
-      // ABI epoch, we're continuing to overwrite the lowers in zlongjmp even for
-      // jmp_bufs that are in loops. If we had an ABI where jmp_bufs created in loops
-      // never restored lowers on zlongjmp, then this code wouldn't have to exist.
-      if (verbose) {
-        errs() << "Dealing with lowers at " << *I << "\n";
-        errs() << "Live:\n";
-        for (Value* V : SetjmpLiveForRefresh[I]) {
-          errs() << "  " << *V << "\n";
-        }
-      }
-      // NOTE: We're only overwriting whatever the SetjmpLiveForRefresh tells us to overwrite. We're
-      // relying on the zlongjmp to zero the lowers that are no longer relevant.
-      for (Value* V : SetjmpLiveForRefresh[I])
-        recordLowers(V, InsertBefore);
-      return;
-    }
-    
-    recordLowers(I, InsertBefore);
   }
 
   Constant* optimizedAccessCheckOrigin(
@@ -8194,8 +8120,7 @@ class Pizlonator {
             lowerConstantOperand(Arg, CI);
           assert(FT == F->getFunctionType());
           assert(CI->hasFnAttr(Attribute::ReturnsTwice));
-          assert(HasSetjmps);
-          assert(SetjmpSetFrameIndex != SIZE_MAX);
+          assert(Setjmps.count(CI));
           Value* ValueArg;
           if (F->getName() == "sigsetjmp") {
             assert(CI->arg_size() == 2);
@@ -8204,27 +8129,18 @@ class Pizlonator {
             assert(CI->arg_size() == 1);
             ValueArg = ConstantInt::get(Int32Ty, 0);
           }
+          unsigned FrameIndex = Setjmps[CI];
           storeOrigin(getOrigin(CI->getDebugLoc()), CI);
           CallInst* Create = CallInst::Create(
-            JmpBufCreate,
-            { MyThread, ConstantInt::get(Int32Ty, static_cast<int>(getJmpBufKindForSetjmp(F))),
+            JmpBufRecreate,
+            { MyThread, recordedLowerPtrAtIndex(FrameIndex, CI),
+              ConstantInt::get(Int32Ty, static_cast<int>(getJmpBufKindForSetjmp(F))),
               ValueArg },
-            "filc_jmp_buf_create", CI);
+            "filc_jmp_buf_recreate", CI);
           Create->setDebugLoc(CI->getDebugLoc());
           Value* UserJmpBuf = CI->getArgOperand(0);
           storePtr(flightPtrForPayload(Create, CI), accessDataForOperand(UserJmpBuf, CI, 0, CI).MAD,
                    CI);
-          Instruction* Set = new LoadInst(
-            RawPtrTy, recordedLowerPtrAtIndex(SetjmpSetFrameIndex, CI), "filc_setjmp_set", CI);
-          Set->setDebugLoc(CI->getDebugLoc());
-          CallInst::Create(
-            WeakMapSet,
-            { MyThread, Set, flightPtrForPayload(Create, CI),
-              createFlightPtr(
-                RawNull,
-                ConstantExpr::getIntToPtr(ConstantInt::get(IntPtrTy, 1), RawPtrTy),
-                CI) },
-            "", CI)->setDebugLoc(CI->getDebugLoc());
           CallInst* NewCI = CallInst::Create(_Setjmp, { Create }, "filc_setjmp", CI);
           CI->replaceAllUsesWith(NewCI);
           NewCI->setDebugLoc(CI->getDebugLoc());
@@ -14518,14 +14434,6 @@ class Pizlonator {
             F->getName() == "sigsetjmp");
   }
 
-  bool isSetjmpCall(Instruction* I) {
-    if (CallBase* CI = dyn_cast<CallBase>(I)) {
-      if (Function* F = dyn_cast<Function>(CI->getCalledOperand()))
-        return isSetjmp(F);
-    }
-    return false;
-  }
-
   /* Clang only marks setjmp returns_twice when it recognizes it as a builtin, which
      -fno-builtin turns off. GCC recognizes these functions by name regardless, and so do we: the
      rest of the pass depends on the attribute. */
@@ -16319,7 +16227,7 @@ public:
     FlightPtrTy = StructType::create({ RawPtrTy, RawPtrTy }, "filc_flight_ptr");
     OriginNodeTy = StructType::create({ RawPtrTy, RawPtrTy, Int32Ty }, "filc_origin_node");
     FunctionOriginTy = StructType::create(
-      { OriginNodeTy, RawPtrTy, Int8Ty, Int8Ty, Int8Ty, Int32Ty }, "filc_function_origin");
+      { OriginNodeTy, RawPtrTy, Int8Ty, Int8Ty, Int32Ty, Int32Ty }, "filc_function_origin");
     OriginTy = StructType::create({ RawPtrTy, Int32Ty, Int32Ty }, "filc_origin");
     InlineFrameTy = StructType::create({ OriginNodeTy, OriginTy }, "filc_inline_frame");
     OriginWithEHTy = StructType::create(
@@ -16566,8 +16474,8 @@ public:
       "filc_landing_pad", Int1Ty, RawPtrTy);
     ResumeUnwind = M.getOrInsertFunction(
       "filc_resume_unwind", VoidTy, RawPtrTy, RawPtrTy);
-    JmpBufCreate = M.getOrInsertFunction(
-      "filc_jmp_buf_create", RawPtrTy, RawPtrTy, Int32Ty, Int32Ty);
+    JmpBufRecreate = M.getOrInsertFunction(
+      "filc_jmp_buf_recreate", RawPtrTy, RawPtrTy, RawPtrTy, Int32Ty, Int32Ty);
     PromoteAlreadyCheckedStackToHeapWithoutExiting = M.getOrInsertFunction(
       "filc_promote_already_checked_stack_to_heap_without_exiting",
       FlightPtrTy, RawPtrTy, RawPtrTy, RawPtrTy, IntPtrTy);
@@ -16592,10 +16500,6 @@ public:
       "filc_allocate_thread_local", RawPtrTy, RawPtrTy, IntPtrTy, IntPtrTy);
     AllocateThreadLocalWithPtrs = M.getOrInsertFunction(
       "filc_allocate_thread_local_with_ptrs", RawPtrTy, RawPtrTy, IntPtrTy, IntPtrTy);
-    WeakMapCreate = M.getOrInsertFunction(
-      "filc_weak_map_create", RawPtrTy, RawPtrTy);
-    WeakMapSet = M.getOrInsertFunction(
-      "filc_weak_map_set", RawPtrTy, RawPtrTy, RawPtrTy, FlightPtrTy, FlightPtrTy);
     _Setjmp = M.getOrInsertFunction(
       "_setjmp", Int32Ty, RawPtrTy);
     cast<Function>(_Setjmp.getCallee())->addFnAttr(Attribute::ReturnsTwice);
@@ -17175,20 +17079,13 @@ public:
         std::vector<BasicBlock*> Blocks;
         for (BasicBlock& BB : *F)
           Blocks.push_back(&BB);
-        std::unordered_set<BasicBlock*> CycleBlocks;
-        CycleInfo CI;
-        CI.compute(*F);
-        for (BasicBlock* BB : Blocks) {
-          if (CI.getCycle(BB))
-            CycleBlocks.insert(BB);
-        }
         assert(!Blocks.empty());
         Args.clear();
         for (BasicBlock* BB : Blocks) {
           BB->removeFromParent();
           BB->insertInto(NewF);
         }
-        computeFrameIndexMap(Blocks, CycleBlocks);
+        computeFrameIndexMap(Blocks);
         FramePoppingMustTails.clear();
         for (BasicBlock* BB : Blocks) {
           for (Instruction& I : *BB) {
@@ -17414,13 +17311,6 @@ public:
           SnapshottedArgsPtrForZargs = SnapshottedArgsPtr;
         }
 
-        if (HasSetjmps) {
-          assert(SetjmpSetFrameIndex != SIZE_MAX);
-          Value* Set = CallInst::Create(
-            WeakMapCreate, { MyThread }, "filc_setjmp_set_create", InsertionPoint);
-          recordLowerAtIndex(Set, SetjmpSetFrameIndex, InsertionPoint);
-        }
-
         FirstRealBlock = InsertionPoint->getParent();
 
         std::vector<PHINode*> Phis;
@@ -17435,7 +17325,7 @@ public:
             Phis.clear();
           }
           if (InvokeInst* II = dyn_cast<InvokeInst>(I))
-            recordLowersForInstruction(I, &*II->getNormalDest()->getFirstInsertionPt());
+            recordLowers(I, &*II->getNormalDest()->getFirstInsertionPt());
           else if (I->isTerminator()) {
             // asm goto produces a CallBrInst, which is a non-void terminator.
             // We reject it in lowerInstruction (it turns into a filc_error
@@ -17443,7 +17333,7 @@ public:
             assert(I->getType()->isVoidTy() || isa<CallBrInst>(I));
           }
           else
-            recordLowersForInstruction(I, I->getNextNode());
+            recordLowers(I, I->getNextNode());
         }
         assert(Phis.empty());
         capturePointerOperands(Instructions);
@@ -17473,7 +17363,7 @@ public:
         Return = ReturnInst::Create(C, UndefValue::get(FlightPtrTy), RootBB);
         Return->getOperandUse(0) = flightPtrForLocalFunction(OldF, Return);
 
-        if (HasSetjmps)
+        if (Setjmps.size())
           assert(NewF->callsFunctionThatReturnsTwice());
         
         if (verbose)

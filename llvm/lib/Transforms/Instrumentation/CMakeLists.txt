@@ -8,7 +8,6 @@ add_llvm_component_library(LLVMInstrumentation
   FilPizlonator.cpp
   GCOVProfiling.cpp
   BlockCoverageInference.cpp
-  MakeSetjmpsGreatAgain.cpp
   MemProfiler.cpp
   MemorySanitizer.cpp
   NumericalStabilitySanitizer.cpp
