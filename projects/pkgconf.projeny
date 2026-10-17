@@ -1,14 +1,14 @@
-URL: https://github.com/pkgconf/pkgconf/releases/download/pkgconf-3.0.8/pkgconf-3.0.8.tar.xz 778da292b878edf09b9d8c30d9491c51b70ca4f1b881a15fdb29b23f482e936b
-URL: https://distfiles.ariadne.space/pkgconf/pkgconf-3.0.8.tar.xz 778da292b878edf09b9d8c30d9491c51b70ca4f1b881a15fdb29b23f482e936b
-URL: https://github.com/pkgconf/pkgconf/releases/download/pkgconf-3.0.8/pkgconf-3.0.8.tar.gz 68557ade48aa1fe9ce2cf3958ed38e2a2de7c95f5b0c31341808a45f31b2c1a4
-Origname: pkgconf-3.0.8
+URL: https://github.com/pkgconf/pkgconf/releases/download/pkgconf-3.0.9/pkgconf-3.0.9.tar.xz 7008b4930e74172a0a1754f29dadda7364e6c4cfeab7919788ab0e33dd1fc87e
+URL: https://distfiles.ariadne.space/pkgconf/pkgconf-3.0.9.tar.xz 7008b4930e74172a0a1754f29dadda7364e6c4cfeab7919788ab0e33dd1fc87e
+URL: https://github.com/pkgconf/pkgconf/releases/download/pkgconf-3.0.9/pkgconf-3.0.9.tar.gz f70c2dcc1779bf22e55e32f0a74d6648be3b4361371e123b213ad790dc387b2a
+Origname: pkgconf-3.0.9
 Name: pkgconf
 
-    pkgconf 3.0.8 with the Fil-C port (pizlonated symbol prefix).
+    pkgconf 3.0.9 with the Fil-C port (pizlonated symbol prefix).
 diff --git a/pkgconf/Makefile.in b/pkgconf/Makefile.in
 --- a/pkgconf/Makefile.in
 +++ b/pkgconf/Makefile.in
-@@ -1256,7 +1256,7 @@
+@@ -1273,7 +1273,7 @@
  		libpkgconf/variable.c		\
  		libpkgconf/version.c
 

@@ -1,5 +1,66 @@
-URL: https://github.com/troglobit/mg/releases/download/v4.2/mg-4.2.tar.gz 6c55486e4108a8e3c340e704f6b4086dd11f76cc59d0403b9dcbccf2021eedc5
-Origname: mg-4.2
+URL: https://github.com/troglobit/mg/releases/download/v4.4/mg-4.4.tar.gz 6fa18b08fdf2cb614f3acc5af139317f8939ed514af73623ce1f6191ae1fee84
+Origname: mg-4.4
 Name: mg
 
-    mg 4.2 unmodified
+    mg 4.4 with one build fix: rename the keyname() helper to keyseqname(),
+    since ncurses' curses.h already declares keyname(int) and the two
+    prototypes collide (upstream fixed this after the 4.4 release; see
+    upstream commit a62108264e05f4f41047f01fa1034f21ad562c08, "Fix #47:
+    build failure with ncurses curses.h").
+diff --git a/mg/src/cinfo.c b/mg/src/cinfo.c
+--- a/mg/src/cinfo.c
++++ b/mg/src/cinfo.c
+@@ -160,7 +160,7 @@
+  * The names of the n keys in keys, space separated.
+  */
+ void
+-keyname(char *buf, size_t len, const KCHAR *keys, int n)
++keyseqname(char *buf, size_t len, const KCHAR *keys, int n)
+ {
+ 	char	*cp = buf;
+ 	int	 i;
+diff --git a/mg/src/def.h b/mg/src/def.h
+--- a/mg/src/def.h
++++ b/mg/src/def.h
+@@ -660,7 +660,7 @@
+
+ /* cinfo.c */
+ char		*getkeyname(char  *, size_t, int);
+-void		 keyname(char *, size_t, const KCHAR *, int);
++void		 keyseqname(char *, size_t, const KCHAR *, int);
+
+ /* syntax.c */
+ #define SYN_NONE	0
+diff --git a/mg/src/echo.c b/mg/src/echo.c
+--- a/mg/src/echo.c
++++ b/mg/src/echo.c
+@@ -1387,7 +1387,7 @@
+ 				break;
+
+ 			case 'k':
+-				keyname(kname, sizeof(kname), key.k_chars,
++				keyseqname(kname, sizeof(kname), key.k_chars,
+ 				    key.k_count);
+ 				eputs(kname);
+ 				break;
+diff --git a/mg/src/help.c b/mg/src/help.c
+--- a/mg/src/help.c
++++ b/mg/src/help.c
+@@ -147,7 +147,7 @@
+ 		ewprintf("%k is bound to an unnamed function");
+ 		return (TRUE);
+ 	}
+-	keyname(kname, sizeof(kname), key.k_chars, key.k_count);
++	keyseqname(kname, sizeof(kname), key.k_chars, key.k_count);
+
+ 	if ((bp = popbuffer("*help*", "view")) == NULL)
+ 		return (FALSE);
+@@ -279,7 +279,7 @@
+ 		for (i = 0; i < w.n; i++) {
+ 			if (w.found[i].len != n)
+ 				continue;
+-			keyname(kname, sizeof(kname), w.found[i].keys, n);
++			keyseqname(kname, sizeof(kname), w.found[i].keys, n);
+ 			if (strlen(buf) + strlen(kname) + 3 > len)
+ 				return;
+ 			if (buf[0])
