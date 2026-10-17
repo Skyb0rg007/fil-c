@@ -1,0 +1,4 @@
+return:
+  dontCrash
+output-excludes:
+  "wrote through freed pointer, spray[i][1] = 'X'"
