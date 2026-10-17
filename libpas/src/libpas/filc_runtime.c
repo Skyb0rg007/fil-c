@@ -160,6 +160,13 @@ int landlock_create_ruleset(const struct landlock_ruleset_attr *, size_t, unsign
 #include <asm/prctl.h>
 #endif
 
+#ifndef SYS_statmount
+#define SYS_statmount 457
+#endif
+#ifndef SYS_listmount
+#define SYS_listmount 458
+#endif
+
 PAS_BEGIN_EXTERN_C;
 
 pas_system_thread_id filc_panicking_thread;
