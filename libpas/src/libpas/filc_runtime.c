@@ -4901,6 +4901,17 @@ static PAS_ALWAYS_INLINE void memmove_smidgen(memmove_smidgen_part part, char* d
     PAS_ASSERT(!"Bad part");
 }
 
+PAS_ALWAYS_INLINE static void* load_lower_for_memmove(char* src_aux_ptr,
+                                                      size_t src_offset,
+                                                      filc_memory_kind src_memory_kind)
+{
+    filc_lower_or_box src_lower_or_box = filc_lower_or_box_load_unfenced(
+        (filc_lower_or_box*)(src_aux_ptr + src_offset));
+    return src_memory_kind == filc_heap_memory
+        ? filc_lower_or_box_extract_lower(src_lower_or_box)
+        : filc_lower_or_box_get_lower(src_lower_or_box);
+}
+
 PAS_ALWAYS_INLINE static void memmove_aux_loop_body(filc_thread* my_thread,
                                                     char** dst_aux_ptr,
                                                     char* src_aux_ptr,
@@ -4946,12 +4957,7 @@ PAS_ALWAYS_INLINE static void memmove_aux_loop_body(filc_thread* my_thread,
             dst_offset -= FILC_WORD_SIZE;
             src_offset -= FILC_WORD_SIZE;
         }
-        filc_lower_or_box src_lower_or_box = filc_lower_or_box_load_unfenced(
-            (filc_lower_or_box*)(src_aux_ptr + src_offset));
-        void* lower =
-            src_memory_kind == filc_heap_memory
-            ? filc_lower_or_box_extract_lower(src_lower_or_box)
-            : filc_lower_or_box_get_lower(src_lower_or_box);
+        void* lower = load_lower_for_memmove(src_aux_ptr, src_offset, src_memory_kind);
         bool do_store = true;
         if (!has_dst_aux && !*dst_aux_ptr) {
             PAS_ASSERT(dst_memory_kind == filc_heap_memory);
@@ -4975,6 +4981,9 @@ PAS_ALWAYS_INLINE static void memmove_aux_loop_body(filc_thread* my_thread,
                             "source object became free during memmove (object = %s).",
                             filc_object_to_new_string(src_object));
                     }
+                    /* A GC cycle could have run within the exit window and lower could now be a
+                       stale pointer. */
+                    lower = load_lower_for_memmove(src_aux_ptr, src_offset, src_memory_kind);
                 }
             } else
                 do_store = false;
