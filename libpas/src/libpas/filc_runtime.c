@@ -5001,7 +5001,7 @@ PAS_ALWAYS_INLINE static void memmove_aux_loop_body(filc_thread* my_thread,
                 filc_store_barrier(my_thread, filc_object_for_lower(lower));
             } else if (do_barrier && lower) {
                 PAS_ASSERT(dst_memory_kind == filc_heap_memory);
-                fugc_mark(&my_thread->mark_stack, filc_object_for_lower_not_null(lower));
+                barrier_impl(my_thread, filc_object_for_lower_not_null(lower));
             }
             filc_lower_or_box* dst_lower_or_box_ptr = (filc_lower_or_box*)(*dst_aux_ptr + dst_offset);
             filc_lower_or_box_store_unfenced_unbarriered(
