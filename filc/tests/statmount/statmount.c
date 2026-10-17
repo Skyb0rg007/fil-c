@@ -100,14 +100,14 @@ int main(void)
     req.size = MNT_ID_REQ_SIZE_VER1;
     errno = 0;
     rc = syscall(SYS_statmount, &req, NULL, 0, 0);
-    /* Save the errno before doing any output.  printf(3) is allowed to clobber errno, and musl's
-       printf(3) really does clobber it on the first write to a non-tty stdout, because musl does
-       an ioctl(TIOCGWINSZ) to decide the buffering mode and that ioctl fails with ENOTTY. */
     int err = errno;
-    printf("statmount id 0 rc %ld errno %d\n", rc, err);
+    zprintf("statmount id 0 rc %ld errno %d\n", rc, err);
     ZASSERT(rc == -1);
     if (err == ENOSYS) {
-        printf("statmount not supported, skipping\n");
+        zprintf("statmount not supported, skipping\n");
+        supported = 0;
+    } else if (err == EPERM) {
+        zprintf("statmount not permitted, skipping\n");
         supported = 0;
     } else {
         ZASSERT(err == EINVAL);
@@ -121,7 +121,7 @@ int main(void)
         req.mnt_id = LSMT_ROOT;
         errno = 0;
         rc = syscall(SYS_listmount, &req, list, 16, 0);
-        printf("listmount root rc %ld errno %d\n", rc, errno);
+        zprintf("listmount root rc %ld errno %d\n", rc, errno);
         ZASSERT(rc >= 1);
         ZASSERT(rc <= 16);
 
@@ -132,7 +132,7 @@ int main(void)
         errno = 0;
         rc = syscall(SYS_statmount, &req, buf, 8, 0);
         err = errno;
-        printf("statmount small buffer rc %ld errno %d\n", rc, err);
+        zprintf("statmount small buffer rc %ld errno %d\n", rc, err);
         ZASSERT(rc == -1);
         ZASSERT(err == EOVERFLOW || err == ENOENT); /* When running in the pizlix build container,
                                                        this gets ENOENT. */
@@ -141,7 +141,7 @@ int main(void)
         memset(buf, 0, sizeof(buf));
         errno = 0;
         rc = syscall(SYS_statmount, &req, buf, sizeof(buf), 0);
-        printf("statmount rc %ld errno %d\n", rc, errno);
+        zprintf("statmount rc %ld errno %d\n", rc, errno);
         if (!rc) {
             struct statmount* sm = (struct statmount*)buf;
             ZASSERT(sm->size);
@@ -155,7 +155,7 @@ int main(void)
                 const char* point = buf + sm->mnt_point;
                 ZASSERT(point[0]);
                 ZASSERT(strlen(point) + 1 <= sm->size - sm->mnt_point);
-                printf("statmount mnt_point %s\n", point);
+                zprintf("statmount mnt_point %s\n", point);
              }
         } else {
             /* When running in the pizlix build container, this gets ENOENT. */
@@ -168,7 +168,7 @@ int main(void)
         req.size = MNT_ID_REQ_SIZE_VER0;
         errno = 0;
         rc = syscall(SYS_statmount, &req, buf, sizeof(buf), 0);
-        printf("statmount ver0 rc %ld errno %d\n", rc, errno);
+        zprintf("statmount ver0 rc %ld errno %d\n", rc, errno);
         ZASSERT(!rc || (rc == -1 && errno == ENOENT)); /* When running in the pizlix build container,
                                                           this gets ENOENT. */
     }
@@ -183,7 +183,7 @@ int main(void)
     errno = 0;
     rc = syscall(SYS_statmount, &req, buf, sizeof(buf), 0);
     err = errno;
-    printf("statmount size 23 rc %ld errno %d\n", rc, err);
+    zprintf("statmount size 23 rc %ld errno %d\n", rc, err);
     ZASSERT(rc == -1);
     ZASSERT(err == EINVAL);
 
@@ -194,10 +194,10 @@ int main(void)
     errno = 0;
     rc = syscall(SYS_statmount, bigreq, buf, sizeof(buf), 0);
     err = errno;
-    printf("statmount size 5000 rc %ld errno %d\n", rc, err);
+    zprintf("statmount size 5000 rc %ld errno %d\n", rc, err);
     ZASSERT(rc == -1);
     ZASSERT(err == E2BIG);
 
-    printf("statmount ok\n");
+    zprintf("statmount ok\n");
     return 0;
 }

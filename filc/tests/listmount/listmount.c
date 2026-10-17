@@ -44,20 +44,22 @@ int main(void)
     /* List the mounts in our namespace, starting at the root mount. */
     errno = 0;
     rc = syscall(SYS_listmount, &req, list, 64, 0);
-    /* Save the errno before doing any output.  printf(3) is allowed to clobber errno, and musl's
-       printf(3) really does clobber it on the first write to a non-tty stdout, because musl does
-       an ioctl(TIOCGWINSZ) to decide the buffering mode and that ioctl fails with ENOTTY. */
     int err = errno;
-    printf("listmount rc %ld errno %d\n", rc, err);
+    zprintf("listmount rc %ld errno %d\n", rc, err);
     if (rc == -1 && err == ENOSYS) {
-        printf("listmount not supported, skipping\n");
-        printf("listmount ok\n");
+        zprintf("listmount not supported, skipping\n");
+        zprintf("listmount ok\n");
+        return 0;
+    }
+    if (rc == -1 && err == EPERM) {
+        zprintf("listmount not permitted, skipping\n");
+        zprintf("listmount ok\n");
         return 0;
     }
     ZASSERT(rc >= 1);
     ZASSERT(rc <= 64);
     for (long index = 0; index < rc; ++index) {
-        printf("listmount id %llu\n", (unsigned long long)list[index]);
+        zprintf("listmount id %llu\n", (unsigned long long)list[index]);
         ZASSERT(list[index]);
     }
 
@@ -66,9 +68,9 @@ int main(void)
     errno = 0;
     rc = syscall(SYS_listmount, &req, list, 0, 0);
     err = errno;
-    printf("listmount num 0 rc %ld errno %d\n", rc, err);
+    zprintf("listmount num 0 rc %ld errno %d\n", rc, err);
     ZASSERT(rc == 0 || (rc == -1 && err != 0));
 
-    printf("listmount ok\n");
+    zprintf("listmount ok\n");
     return 0;
 }
