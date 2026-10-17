@@ -608,6 +608,7 @@ cp -v etc/fstab /etc/
 cp -v etc/topdefaultrc /etc/
 cp -v etc/limits /etc/
 cp -v etc/sysctl.conf /etc/
+cp -v etc/issue /etc/
 
 mkdir -v /usr/share/keymaps/custom
 cp -v keymaps/fixed-keys.map /usr/share/keymaps/custom/

@@ -142,6 +142,7 @@ cp -v \
     etc/sudoers \
     etc/limits \
     etc/sysctl.conf \
+    etc/issue \
     $LFS/sources/etc
 
 if test -e data-disk.img
