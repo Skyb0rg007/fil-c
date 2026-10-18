@@ -72,6 +72,7 @@ filc/projeny package \
     projects/libffi.projeny projects/libffi/pizlonated-libffi.tar.gz \
     projects/icu.projeny projects/icu/pizlonated-icu.tar.gz \
     projects/tmux.projeny projects/tmux/pizlonated-tmux.tar.gz \
+    projects/libunistring.projeny projects/libunistring/pizlonated-libunistring.tar.gz \
     projects/libidn2.projeny projects/libidn2/pizlonated-libidn2.tar.gz \
     projects/curl.projeny projects/curl/pizlonated-curl.tar.gz \
     projects/m4.projeny projects/m4/pizlonated-m4.tar.gz \

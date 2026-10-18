@@ -18,6 +18,7 @@ rm -vf projects/*/pizlonated-*.tar.gz
 ./package-source.sh projects/libtasn1-4.21.0 pizlonated-libtasn1
 ./package-source.sh projects/p11-kit-0.26.5 pizlonated-p11-kit
 filc/projeny package projects/libidn2.projeny projects/libidn2/pizlonated-libidn2.tar.gz
+filc/projeny package projects/libunistring.projeny projects/libunistring/pizlonated-libunistring.tar.gz
 filc/projeny package projects/curl.projeny projects/curl/pizlonated-curl.tar.gz
 ./package-source.sh projects/emacs-30.1 pizlonated-emacs
 ./package-source.sh projects/sudo-1.9.17p2 pizlonated-sudo

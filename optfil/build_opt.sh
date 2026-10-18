@@ -828,13 +828,13 @@ cd ..
 rm -rf pizlonated-tmux
 hash -r
 
-tar -xf $FILCSRC/pizlix/libunistring-1.4.2.tar.xz
-cd libunistring-1.4.2
+tar -xf $FILCSRC/projects/libunistring/pizlonated-libunistring.tar.gz
+cd pizlonated-libunistring
 CC=/opt/fil/bin/filcc CXX=/opt/fil/bin/fil++ ./configure --prefix=/opt/fil --disable-static --sysconfdir=/etc
 make -j `nproc`
 make -j `nproc` install
 cd ..
-rm -rf libunistring-1.4.2
+rm -rf pizlonated-libunistring
 hash -r
 
 tar -xf $FILCSRC/projects/libidn2/pizlonated-libidn2.tar.gz
