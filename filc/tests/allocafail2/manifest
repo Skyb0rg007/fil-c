@@ -1,0 +1,4 @@
+return:
+  dontCrash
+output-excludes:
+  "assertion !ran failed"

@@ -1,0 +1,4 @@
+return:
+  dontCrash
+output-excludes:
+  - "assertion v == 0x1111111111111111ul failed"

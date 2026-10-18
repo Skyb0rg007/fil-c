@@ -1477,6 +1477,11 @@ static int inferSizeFromSuffix(char suffix) {
   }
 }
 
+enum class ExitAllowedMode {
+  NotAllowed,
+  Allowed
+};
+
 class Pizlonator {
   static constexpr unsigned TargetAS = 0;
   
@@ -1540,6 +1545,8 @@ class Pizlonator {
   FunctionCallee GetNextPtrBytesForVAArg;
   FunctionCallee Allocate;
   FunctionCallee AllocateWithAlignment;
+  FunctionCallee AllocateWithoutExiting;
+  FunctionCallee AllocateWithAlignmentWithoutExiting;
   FunctionCallee LocalAllocatorAllocate;
   FunctionCallee FreeWithChecks;
   FunctionCallee LogAllocate;
@@ -2716,7 +2723,8 @@ class Pizlonator {
     return Allocate;
   }
 
-  Value* allocateObject(Value* Size, Value* Alignment, Instruction* InsertBefore) {
+  Value* allocateObject(Value* Size, Value* Alignment, ExitAllowedMode EAM,
+                        Instruction* InsertBefore) {
     if (logAllocations) {
       CallInst::Create(
         LogAllocate, { MyThread, getOrigin(InsertBefore->getDebugLoc()), Size, Alignment },
@@ -2731,17 +2739,19 @@ class Pizlonator {
           return ResultValue;
       }
       Result = CallInst::Create(
-        Allocate, { MyThread, Size }, "filc_allocate", InsertBefore);
+        EAM == ExitAllowedMode::Allowed ? Allocate : AllocateWithoutExiting,
+        { MyThread, Size }, "filc_allocate", InsertBefore);
     } else {
       Result = CallInst::Create(
-        AllocateWithAlignment, { MyThread, Size, Alignment }, "filc_allocate", InsertBefore);
+        EAM == ExitAllowedMode::Allowed ? AllocateWithAlignment : AllocateWithAlignmentWithoutExiting,
+        { MyThread, Size, Alignment }, "filc_allocate", InsertBefore);
     }
     Result->setDebugLoc(InsertBefore->getDebugLoc());
     return Result;
   }
 
-  Value* allocate(Value* Size, Value* Alignment, Instruction* InsertBefore) {
-    return flightPtrForObject(allocateObject(Size, Alignment, InsertBefore), InsertBefore);
+  Value* allocate(Value* Size, Value* Alignment, ExitAllowedMode EAM, Instruction* InsertBefore) {
+    return flightPtrForObject(allocateObject(Size, Alignment, EAM, InsertBefore), InsertBefore);
   }
 
   // A musttail call pops this function's Fil-C frame before the callee runs. Fil-C callers root
@@ -2835,6 +2845,12 @@ class Pizlonator {
 
   size_t alignedAllocaSize(AllocaInst* AI) {
     return (originalAllocaSize(AI) + GCMinAlign - 1) & -GCMinAlign;
+  }
+
+  ExitAllowedMode allocaExitAllowedMode(AllocaInst* AI) {
+    if (allocaHasSizeForUs(AI) && originalAllocaSize(AI) < MaxBytesBetweenPollchecks)
+      return ExitAllowedMode::NotAllowed;
+    return ExitAllowedMode::Allowed;
   }
 
   size_t countPtrsForAlloca(AllocaInst* AI) {
@@ -4847,24 +4863,15 @@ class Pizlonator {
     return false;
   }
 
-  bool functionMayFree(Function* F) {
-    return !functionWillReturn(F) || 
-      F->getName() == "zgc_realloc" ||
-      F->getName() == "zgc_aligned_realloc" ||
-      F->getName() == "zgc_realloc_preserving_alignment" ||
-      F->getName() == "zgc_free" ||
-      F->getName() == "free";
-  }
-
   bool callMayFree(CallBase* CI) {
-    if (Function* F = dyn_cast<Function>(CI->getCalledOperand()))
-      return functionMayFree(F);
-    return false;
+    return CI->mayWriteToMemory();
   }
 
   bool instructionMayFree(Instruction* I) {
     if (CallBase* CI = dyn_cast<CallBase>(I))
       return callMayFree(CI);
+    if (AllocaInst* AI = dyn_cast<AllocaInst>(I))
+      return allocaExitAllowedMode(AI) == ExitAllowedMode::Allowed;
     return false;
   }
   
@@ -5532,6 +5539,69 @@ class Pizlonator {
 
     ForwardChecksAtHead[&NewF->getEntryBlock()].Bottom = false;
 
+    std::vector<AccessCheck> Checks;
+    bool NeedToCanonicalize = false;
+
+    auto Initialize = [&] (const ChecksOrBottom& COB) {
+      Checks = COB.Checks;
+      if (verbose)
+        errs() << "Checks at head: " << Checks << "\n";
+      
+      NeedToCanonicalize = false;
+    };
+    
+    auto Execute = [&] (BasicBlock* BB, Instruction& I, const auto& Schedule) {
+      auto HandleEffects = [&] () {
+        EraseIf(Checks, [&] (const AccessCheck& AC) -> bool {
+          return AC.CK == CheckKind::NotFree || AC.CK == CheckKind::GetAuxPtr;
+        });
+      };
+        
+      if (&I == BB->getTerminator() && BackEdgePreds.count(BB)) {
+        // Execute the pollcheck.
+        HandleEffects();
+      }
+
+      auto Iter = ChecksForInst.find(&I);
+      if (Iter != ChecksForInst.end()) {
+        std::vector<AccessCheckWithDI> NewChecks = Iter->second;
+        if (verbose) {
+          errs() << "Dealing with previously scheduled checks at " << I << ":\n    "
+                 << NewChecks << "\n";
+        }
+        if (NeedToCanonicalize) {
+          canonicalizeAccessChecks(Checks);
+          NeedToCanonicalize = false;
+        }
+        subtractChecksCreatingKnowns(NewChecks, Checks);
+        if (!NewChecks.empty()) {
+          Schedule(NewChecks);
+          EraseIf(NewChecks, [&] (const AccessCheck& AC) -> bool {
+            return IsKnownCheckKind(AC.CK);
+          });
+          if (!NewChecks.empty()) {
+            Checks.insert(Checks.end(), NewChecks.begin(), NewChecks.end());
+            for (const AccessCheckWithDI& AC : NewChecks) {
+              if (AC.CK == CheckKind::EnsureAuxPtr) {
+                EraseIf(Checks, [&] (const AccessCheck& AC2) -> bool {
+                  return AC2.CK == CheckKind::NotFree
+                    || (AC2.CK == CheckKind::GetAuxPtr && AC2.CanonicalPtr != AC.CanonicalPtr);
+                });
+              }
+            }
+            NeedToCanonicalize = true;
+          }
+        }
+      }
+        
+      // For now, just conservatively assume that all calls may free stuff.
+      if (instructionMayFree(&I))
+        HandleEffects();
+        
+      if (verbose)
+        errs() << "Checks after " << I << ":\n    " << Checks << "\n";
+    };
+    
     bool Changed = true;
     while (Changed) {
       Changed = false;
@@ -5543,40 +5613,10 @@ class Pizlonator {
         if (COB.Bottom)
           continue;
 
-        std::vector<AccessCheck> Checks = COB.Checks;
-        if (verbose)
-          errs() << "Checks at head: " << Checks << "\n";
+        Initialize(COB);
 
-        for (Instruction& I : *BB) {
-          auto HandleEffects = [&] () {
-            EraseIf(Checks, [&] (const AccessCheck& AC) -> bool {
-              return AC.CK == CheckKind::NotFree || AC.CK == CheckKind::GetAuxPtr;
-            });
-          };
-
-          if (&I == BB->getTerminator() && BackEdgePreds.count(BB)) {
-            // Execute the pollcheck.
-            HandleEffects();
-          }
-
-          auto Iter = ChecksForInst.find(&I);
-          if (Iter != ChecksForInst.end())
-            Checks.insert(Checks.end(), Iter->second.begin(), Iter->second.end());
-          
-          // For now, just conservatively assume that all calls may free stuff.
-          // FIXME: Could be a bit more precise here for memmoves, but it's probably not worth it
-          if (isa<CallBase>(&I))
-            HandleEffects();
-          else if (isa<StoreInst>(&I) || isa<AtomicCmpXchgInst>(&I) || isa<AtomicRMWInst>(&I)) {
-            Value* Ptr = canonicalizePtr(ptrOperandForAccess(&I)).HighP;
-            EraseIf(Checks, [&] (const AccessCheck& AC) -> bool {
-              return AC.CK == CheckKind::GetAuxPtr && AC.CanonicalPtr != Ptr;
-            });
-          }
-
-          if (verbose)
-            errs() << "Checks after " << I << ":\n    " << Checks << "\n";
-        }
+        for (Instruction& I : *BB)
+          Execute(BB, I, [] (const std::vector<AccessCheckWithDI>&) { });
 
         auto Iter = CanonicalPtrLiveAtTail.find(BB);
         assert(Iter != CanonicalPtrLiveAtTail.end());
@@ -5615,64 +5655,16 @@ class Pizlonator {
       // It's weird, but possible, that we have an unreachable block.
       if (StateWithBottom.Bottom)
         continue;
-      
-      std::vector<AccessCheck> Checks = StateWithBottom.Checks;
-      bool NeedToCanonicalize = false;
 
-      if (verbose)
-        errs() << "Checks at head: " << Checks << "\n";
-      
+      Initialize(StateWithBottom);
+
       for (Instruction& I : *BB) {
-        auto HandleEffects = [&] () {
-          EraseIf(Checks, [&] (const AccessCheck& AC) -> bool {
-            return AC.CK == CheckKind::NotFree || AC.CK == CheckKind::GetAuxPtr;
-          });
-        };
-        
-        if (&I == BB->getTerminator() && BackEdgePreds.count(BB)) {
-          // Execute the pollcheck.
-          HandleEffects();
-        }
-
-        auto Iter = ChecksForInst.find(&I);
-        if (Iter != ChecksForInst.end()) {
-          std::vector<AccessCheckWithDI> NewChecks = Iter->second;
-          if (verbose) {
-            errs() << "Dealing with previously scheduled checks at " << I << ":\n    "
-                   << NewChecks << "\n";
-          }
-          if (NeedToCanonicalize) {
-            canonicalizeAccessChecks(Checks);
-            NeedToCanonicalize = false;
-          }
-          subtractChecksCreatingKnowns(NewChecks, Checks);
-          if (!NewChecks.empty()) {
-            assert(!NewChecksForInst.count(&I));
-            if (verbose)
-              errs() << "Checks scheduled at " << I << ":\n    " << NewChecks << "\n";
-            NewChecksForInst[&I] = NewChecks;
-            EraseIf(NewChecks, [&] (const AccessCheck& AC) -> bool {
-              return IsKnownCheckKind(AC.CK);
-            });
-            if (!NewChecks.empty()) {
-              Checks.insert(Checks.end(), NewChecks.begin(), NewChecks.end());
-              NeedToCanonicalize = true;
-            }
-          }
-        }
-        
-        // For now, just conservatively assume that all calls may free stuff.
-        if (isa<CallBase>(&I))
-          HandleEffects();
-        else if (isa<StoreInst>(&I) || isa<AtomicCmpXchgInst>(&I) || isa<AtomicRMWInst>(&I)) {
-          Value* Ptr = canonicalizePtr(ptrOperandForAccess(&I)).HighP;
-          EraseIf(Checks, [&] (const AccessCheck& AC) -> bool {
-            return AC.CK == CheckKind::GetAuxPtr && AC.CanonicalPtr != Ptr;
-          });
-        }
-        
-        if (verbose)
-          errs() << "Checks after " << I << ":\n    " << Checks << "\n";
+        Execute(BB, I, [&] (const std::vector<AccessCheckWithDI>& NewChecks) {
+          assert(!NewChecksForInst.count(&I));
+          if (verbose)
+            errs() << "Checks scheduled at " << I << ":\n    " << NewChecks << "\n";
+          NewChecksForInst[&I] = NewChecks;
+        });
       }
     }
 
@@ -5843,9 +5835,17 @@ class Pizlonator {
           auto Iter = ChecksForInst.find(I);
           if (Iter != ChecksForInst.end()) {
             std::vector<AccessCheckWithDI> ChecksForThisInst = Iter->second;
-            EraseIf(ChecksForThisInst, [&] (const AccessCheckWithDI& AC) ->bool {
+            bool MayFree = false;
+            EraseIf(ChecksForThisInst, [&] (const AccessCheckWithDI& AC) -> bool {
+              if (AC.CK == CheckKind::EnsureAuxPtr)
+                MayFree = true;
               return AC.CK == CheckKind::GetAuxPtr || AC.CK == CheckKind::EnsureAuxPtr;
             });
+            if (MayFree) {
+              EraseIf(Checks, [&] (const AccessCheck& AC) -> bool {
+                return AC.CK == CheckKind::NotFree;
+              });
+            }
             Checks.insert(Checks.end(), ChecksForThisInst.begin(), ChecksForThisInst.end());
           }
 
@@ -5950,9 +5950,21 @@ class Pizlonator {
         auto Iter = ChecksForInst.find(I);
         if (Iter != ChecksForInst.end()) {
           std::vector<AccessCheckWithDI> ChecksForThisInst = Iter->second;
+          bool MayFree = false;
           EraseIf(ChecksForThisInst, [&] (const AccessCheckWithDI& AC) -> bool {
+            if (AC.CK == CheckKind::EnsureAuxPtr)
+              MayFree = true;
             return AC.CK == CheckKind::GetAuxPtr || AC.CK == CheckKind::EnsureAuxPtr;
           });
+          if (MayFree) {
+            EraseIf(Checks, [&] (const AccessCheck& AC) -> bool {
+              if (AC.CK == CheckKind::NotFree) {
+                ChecksToEmit.push_back(AC);
+                return true;
+              }
+              return false;
+            });
+          }
           Checks.insert(Checks.end(), ChecksForThisInst.begin(), ChecksForThisInst.end());
         }
 
@@ -8384,7 +8396,9 @@ class Pizlonator {
             FT->getReturnType() == RawPtrTy &&
             FT->getParamType(0) == IntPtrTy) {
           lowerConstantOperand(CI->getArgOperandUse(0), CI);
-          CI->replaceAllUsesWith(allocate(CI->getArgOperand(0), ConstantInt::get(IntPtrTy, 1), CI));
+          CI->replaceAllUsesWith(
+            allocate(CI->getArgOperand(0), ConstantInt::get(IntPtrTy, 1), ExitAllowedMode::Allowed,
+                     CI));
           Erasify();
           return true;
         }
@@ -14174,6 +14188,7 @@ class Pizlonator {
         allocate(
           Size,
           ConstantInt::get(IntPtrTy, std::max(DL.getABITypeAlign(T).value(), AI->getAlign().value())),
+          allocaExitAllowedMode(AI),
           AI));
       AI->eraseFromParent();
       return;
@@ -16382,6 +16397,10 @@ public:
       "filc_allocate", RawPtrTy, RawPtrTy, IntPtrTy);
     AllocateWithAlignment = M.getOrInsertFunction(
       "filc_allocate_with_alignment", RawPtrTy, RawPtrTy, IntPtrTy, IntPtrTy);
+    AllocateWithoutExiting = M.getOrInsertFunction(
+      "filc_allocate_without_exiting", RawPtrTy, RawPtrTy, IntPtrTy);
+    AllocateWithAlignmentWithoutExiting = M.getOrInsertFunction(
+      "filc_allocate_with_alignment_without_exiting", RawPtrTy, RawPtrTy, IntPtrTy, IntPtrTy);
     LocalAllocatorAllocate = M.getOrInsertFunction(
       "verse_local_allocator_allocate", RawPtrTy, RawPtrTy);
     FreeWithChecks = M.getOrInsertFunction(

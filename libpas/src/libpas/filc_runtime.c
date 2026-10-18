@@ -9136,6 +9136,20 @@ int filc_native_zsys_raise(filc_thread* my_thread, int sig)
     return result;
 }
 
+int filc_native_zsys_raise_without_exit(filc_thread* my_thread, int sig)
+{
+    PAS_UNUSED_PARAM(my_thread);
+    if (is_unsafe_signal_for_kill(sig)) {
+        filc_set_errno(ENOSYS);
+        return -1;
+    }
+    int result = raise(sig);
+    int my_errno = errno;
+    if (result < 0)
+        filc_set_errno(my_errno);
+    return result;
+}
+
 int filc_native_zsys_dup_impl(filc_thread* my_thread, int fd)
 {
     check_fd(fd);

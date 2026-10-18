@@ -101,6 +101,10 @@ void zset_scavenger_periods_to_1ms(void);
    page size. */
 __SIZE_TYPE__ zgc_page_size(void);
 
+/* This is the raise syscall, but it doesn't exit - hence the actual signal delivery is on the next
+   exit. */
+int zsys_raise_without_exit(int sig);
+
 #ifdef __cplusplus
 }
 #endif
