@@ -73,6 +73,7 @@ filc/projeny package \
     projects/icu.projeny projects/icu/pizlonated-icu.tar.gz \
     projects/tmux.projeny projects/tmux/pizlonated-tmux.tar.gz \
     projects/libidn2.projeny projects/libidn2/pizlonated-libidn2.tar.gz \
+    projects/curl.projeny projects/curl/pizlonated-curl.tar.gz \
     projects/m4.projeny projects/m4/pizlonated-m4.tar.gz \
     projects/xxHash.projeny projects/xxHash/pizlonated-xxHash.tar.gz \
     projects/rsync.projeny projects/rsync/pizlonated-rsync.tar.gz \
@@ -110,7 +111,6 @@ filc/projeny package \
 ./package-source.sh projects/procps-ng-4.0.7 pizlonated-procps
 ./package-source.sh projects/libtasn1-4.21.0 pizlonated-libtasn1
 ./package-source.sh projects/p11-kit-0.26.5 pizlonated-p11-kit
-./package-source.sh projects/curl-8.22.0 pizlonated-curl
 ./package-source.sh projects/libevent-2.1.13 pizlonated-libevent
 ./package-source.sh projects/zstd-1.5.7 pizlonated-zstd
 ./package-source.sh projects/zip-3.0 pizlonated-zip

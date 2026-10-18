@@ -69,4 +69,4 @@ cd ../../../openssl-build/extracted-source
 ../../../pizfix/bin/perl "-I." "-Iproviders/common/der" "-Mconfigdata" "-Mconfigdata" "-Mconfigdata" "-Moids_to_c" "util/dofile.pl" "-oMakefile" providers/common/include/prov/der_digests.h.in
 
 cd ../../..
-pizfix/bin/perl projects/curl-8.22.0/src/mkhelp.pl -c < Manifesto.md > /dev/null
+pizfix/bin/perl projects/curl/src/mkhelp.pl -c < Manifesto.md > /dev/null
