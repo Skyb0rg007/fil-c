@@ -8037,6 +8037,8 @@ filc_ptr filc_native_zfiber_context_new(filc_thread* my_thread)
 
 void filc_fiber_context_destruct(filc_fiber_context* fiber_context)
 {
+    static const bool verbose = false;
+    
     filc_native_frame* native_frame;
     for (native_frame = fiber_context->top_native_frame;
          native_frame;
@@ -8045,7 +8047,26 @@ void filc_fiber_context_destruct(filc_fiber_context* fiber_context)
 
     filc_raw_ptr_array_destruct(&fiber_context->allocation_roots);
 
-    bmalloc_deallocate(fiber_context->stack);
+    filc_fiber_context* stack_owner = fiber_context;
+    if (stack_owner->stack)
+        PAS_ASSERT(!stack_owner->stack_owner);
+    else if (stack_owner->stack_owner) {
+        stack_owner = stack_owner->stack_owner;
+        PAS_ASSERT(!stack_owner->stack_owner);
+        PAS_ASSERT(stack_owner->stack);
+    } else
+        stack_owner = NULL;
+    if (stack_owner) {
+        pas_lock_lock(&stack_owner->lock);
+        if (!--stack_owner->stack_ref_count) {
+            if (verbose && stack_owner != fiber_context) {
+                pas_log("destroying stack %p for stack_owner %p while destroying fiber_context %p\n",
+                        stack_owner->stack, stack_owner, fiber_context);
+            }
+            bmalloc_deallocate(stack_owner->stack);
+        }
+        pas_lock_unlock(&stack_owner->lock);
+    }
 }
 
 void fiber_context_send_sigset_to_user(filc_fiber_context* fiber_context)
@@ -8232,6 +8253,7 @@ void filc_native_zfiber_context_makecontext(filc_thread* my_thread, filc_ptr fib
         "invalid stack_size in call to makecontext (passed stack_size = %zu).",
         passed_stack_size);
     fiber_context->stack = bmalloc_allocate(stack_size);
+    fiber_context->stack_ref_count = 1;
     fiber_context->stack_limit = compute_stack_limit_for_stack_and_size(fiber_context->stack,
                                                                         stack_size);
     fiber_context->context.uc_stack.ss_sp = fiber_context->stack;
@@ -8307,10 +8329,25 @@ void filc_native_zfiber_context_swapcontext(filc_thread* my_thread, filc_ptr fro
     } else {
         PAS_ASSERT(from_fiber_context->state == filc_fiber_context_uninitialized ||
                    from_fiber_context->state == filc_fiber_context_after_getcontext);
-        if (my_thread->current_fiber_context) {
-            filc_store_barrier(
-                my_thread, filc_object_for_special_payload(my_thread->current_fiber_context));
-            from_fiber_context->stack_owner = my_thread->current_fiber_context;
+        filc_fiber_context* stack_owner = my_thread->current_fiber_context;
+        if (stack_owner && (stack_owner->stack_owner || stack_owner->stack)) {
+            /* You either have a stack or a stack owner!
+
+               You'll have a stack if the current context was initialized using makecontext.
+
+               You'll have a stack_owner if the current context was initialized using this code
+               path. */
+            PAS_ASSERT(!!stack_owner->stack_owner != !!stack_owner->stack);
+            if (stack_owner->stack_owner) {
+                stack_owner = stack_owner->stack_owner;
+                PAS_ASSERT(!stack_owner->stack_owner);
+                PAS_ASSERT(stack_owner->stack);
+            }
+            PAS_ASSERT(!stack_owner->stack_owner);
+            PAS_ASSERT(stack_owner->stack);
+            stack_owner->stack_ref_count++;
+            filc_store_barrier(my_thread, filc_object_for_special_payload(stack_owner));
+            from_fiber_context->stack_owner = stack_owner;
         }
         from_fiber_context->stack_limit.stack_limit = my_thread->stack_limit;
         from_fiber_context->stack_limit.stack_top = my_thread->stack_top;

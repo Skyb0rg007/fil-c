@@ -1384,6 +1384,7 @@ struct filc_fiber_context {
     unsigned special_signal_deferral_depth;
     filc_stack_limit stack_limit;
     void* stack;
+    unsigned stack_ref_count;
     filc_ptr closure_ptr;
     filc_ptr bound_sigset_ptr;
     filc_thread* owning_thread;

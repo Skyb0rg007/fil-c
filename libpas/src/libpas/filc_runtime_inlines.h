@@ -589,6 +589,8 @@ static PAS_ALWAYS_INLINE void filc_thread_mark_roots(filc_thread* my_thread,
         marker.mark(stack, filc_object_array_at(&my_thread->thread_locals, index));
 
 #if FILC_HAS_FIBER_CONTEXT
+    marker.mark(stack, filc_object_for_special_payload(my_thread->current_fiber_context));
+    
     for (index = my_thread->grey_fibers.size; index--;) {
         filc_fiber_context* fiber_context = (filc_fiber_context*)my_thread->grey_fibers.array[index];
         pas_lock_lock(&fiber_context->lock);
