@@ -1,0 +1,17 @@
+URL: https://ftp.postgresql.org/pub/source/v18.6/postgresql-18.6.tar.bz2 953f5040be4b295da54192ebc13eb21374d8b23a0b084810c7f0a5ad2424f9fd
+Origname: postgresql-18.6
+Name: postgresql
+
+    Just allowlist filc_allocate_without_exiting in the check that libpq doesn't call exit.
+diff --git a/postgresql/src/interfaces/libpq/Makefile b/postgresql/src/interfaces/libpq/Makefile
+--- a/postgresql/src/interfaces/libpq/Makefile
++++ b/postgresql/src/interfaces/libpq/Makefile
+@@ -144,7 +144,7 @@
+ libpq-refs-stamp: $(shlib)
+ ifneq ($(enable_coverage), yes)
+ ifeq (,$(filter solaris,$(PORTNAME)))
+-	@if nm -A -u $< 2>/dev/null | grep -v -e __cxa_atexit -e __tsan_func_exit | grep exit; then \
++	@if nm -A -u $< 2>/dev/null | grep -v -e __cxa_atexit -e __tsan_func_exit -e filc_allocate_without_exiting | grep exit; then \
+ 		echo 'libpq must not be calling any function which invokes exit'; exit 1; \
+ 	fi
+ endif

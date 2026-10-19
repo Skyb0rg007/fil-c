@@ -940,8 +940,8 @@ cd ..
 rm -rf pizlonated-libxml2
 hash -r
 
-tar -xf $FILCSRC/pizlix/postgresql-18.6.tar.bz2
-cd postgresql-18.6
+tar -xf $FILCSRC/projects/postgresql/pizlonated-postgresql.tar.gz
+cd pizlonated-postgresql
 CC=/opt/fil/bin/filcc CXX=/opt/fil/bin/fil++ ./configure --prefix=/opt/fil --with-ssl=openssl --without-icu --without-readline --without-zlib
 # Fil-C emits pizlonated_ prefixed symbols. The version script built from the exports list names the plain ones, so it hides every
 # entry point, and -fvisibility=hidden hides the prefixed ones as well because they do not inherit the default visibility that
@@ -958,7 +958,7 @@ make -C src/interfaces/libpq SHLIB_EXPORTS= install
 make -C src/bin/pg_config install
 make -C src/include install
 cd ..
-rm -rf postgresql-18.6
+rm -rf pizlonated-postgresql
 hash -r
 
 cd ..

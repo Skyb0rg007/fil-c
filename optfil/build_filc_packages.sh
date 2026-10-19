@@ -91,7 +91,8 @@ filc/projeny package \
     projects/libuv.projeny projects/libuv/pizlonated-libuv.tar.gz \
     projects/pcre2.projeny projects/pcre2/pizlonated-pcre2.tar.gz \
     projects/openssh.projeny projects/openssh/pizlonated-openssh.tar.gz \
-    projects/git.projeny projects/git/pizlonated-git.tar.gz
+    projects/git.projeny projects/git/pizlonated-git.tar.gz \
+    projects/postgresql.projeny projects/postgresql/pizlonated-postgresql.tar.gz
 
 ./package-source.sh projects/libxcrypt-4.5.2 pizlonated-libxcrypt
 ./package-source.sh projects/bash-5.3 pizlonated-bash
