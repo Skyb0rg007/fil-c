@@ -1,0 +1,125 @@
+#!/bin/sh
+
+########################################################################
+
+# Begin elogind
+
+#
+
+# Description : Elogind session and seat manager
+
+#
+
+# Authors     : Pizlix
+
+#
+
+# Version     : LFS x.x
+
+#
+
+# Notes       : Runs as a daemon (-D).  Must start after dbus (it claims
+
+#               the org.freedesktop.login1 name on the system bus) and
+
+#               before gettys log users in (pam_elogind talks to it).
+
+#
+
+########################################################################
+
+### BEGIN INIT INFO
+
+# Provides:            elogind
+
+# Required-Start:      $local_fs dbus
+
+# Should-Start:
+
+# Required-Stop:       $local_fs dbus
+
+# Should-Stop:
+
+# Default-Start:       2 3 4 5
+
+# Default-Stop:        0 1 6
+
+# Short-Description:   Elogind session manager
+
+# Description:         Provides the logind (org.freedesktop.login1) API
+
+#                      used by mutter to take control of seat0 and get
+
+#                      DRM master, and registers user sessions via
+
+#                      pam_elogind.
+
+# X-LFS-Provided-By:   LFS
+
+### END INIT INFO
+
+. /lib/lsb/init-functions
+
+case "${1}" in
+
+   start)
+
+      log_info_msg "Starting elogind session manager..."
+
+      /usr/libexec/elogind --daemon
+
+      evaluate_retval
+
+      ;;
+
+
+
+   stop)
+
+      log_info_msg "Stopping elogind session manager..."
+
+      killproc /usr/libexec/elogind
+
+      evaluate_retval
+
+      ;;
+
+
+
+   restart)
+
+      ${0} stop
+
+      sleep 1
+
+      ${0} start
+
+      ;;
+
+
+
+   status)
+
+      statusproc /usr/libexec/elogind
+
+      ;;
+
+
+
+   *)
+
+      echo "Usage: ${0} {start|stop|restart|status}"
+
+      exit 1
+
+      ;;
+
+esac
+
+
+
+exit 0
+
+
+
+# End elogind

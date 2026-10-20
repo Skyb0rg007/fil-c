@@ -33,12 +33,32 @@ su $FILCOWNER ./build_postlc7_sub1_packaging.sh
 cp -v $FILCSRC/projects/*/pizlonated-*.tar.gz $LFS/sources
 cp -v build_postlc7_sub2_chroot.sh $LFS/sources
 cp -v build_postlc7_chroot_project_*.sh $LFS/sources
+cp -v build_postlc7_chroot_setup_scripts_for_gnome.sh $LFS/sources
+cp -v build_postlc7_chroot_gnome_smoke.sh $LFS/sources
 # Plain tarball needed by postlc7: the shadow PAM rebuild compares against
 # it (the build itself uses pizlonated-shadow.tar.gz, which is already in
 # /sources from the earlier stage that built shadow without PAM).
 cp -v shadow-4.16.0.tar.xz $LFS/sources
 
+# Sprint 5: session wiring (dbus/elogind bootscripts, GNOME session file,
+# autostart desktops, launchers).  The chroot setup script reads these
+# from /sources/etc.
+mkdir -pv $LFS/sources/etc/init.d
+mkdir -pv $LFS/sources/etc/gnome-session
+mkdir -pv $LFS/sources/etc/xdg/autostart
+mkdir -pv $LFS/sources/etc/gnome
+cp -v etc/init.d/dbus etc/init.d/elogind $LFS/sources/etc/init.d
+cp -v etc/gnome-session/pizlix-gnome.session $LFS/sources/etc/gnome-session
+cp -v etc/xdg/autostart/pizlix-mutter.desktop \
+      etc/xdg/autostart/pizlix-terminal.desktop $LFS/sources/etc/xdg/autostart
+cp -v etc/gnome/pizlix-gnome.sh etc/gnome/pizlix-mutter.sh $LFS/sources/etc/gnome
+
 ./build_chroot_late.sh /sources/build_postlc7_sub2_chroot.sh
+
+# Sprint 5: install the session wiring inside the chroot (same pattern as
+# postlc3's setup-scripts-for-weston step) and smoke-test it.
+./build_chroot_late.sh /sources/build_postlc7_chroot_setup_scripts_for_gnome.sh
+./build_chroot_late.sh /sources/build_postlc7_chroot_gnome_smoke.sh
 
 echo "postlc7" > $LFS/sources/lfsbuildstate
 

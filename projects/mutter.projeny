@@ -389,6 +389,47 @@ diff --git a/mutter/clutter/clutter/clutter-stage.c b/mutter/clutter/clutter/clu
    g_signal_set_va_marshaller (stage_signals[PAINT_VIEW],
                                G_TYPE_FROM_CLASS (gobject_class),
                                _clutter_marshal_VOID__OBJECT_BOXED_BOXEDv);
+diff --git a/mutter/cogl/cogl/cogl-bitmap-conversion.c b/mutter/cogl/cogl/cogl-bitmap-conversion.c
+--- a/mutter/cogl/cogl/cogl-bitmap-conversion.c
++++ b/mutter/cogl/cogl/cogl-bitmap-conversion.c
+@@ -262,8 +262,12 @@
+
+ /* Use the SSE optimized version to premult four pixels at once when
+    it is available. The same assembler code works for x86 and x86-64
+-   because it doesn't refer to any non-SSE registers directly */
+-#if defined(__SSE2__) && defined(__GNUC__) \
++   because it doesn't refer to any non-SSE registers directly.
++
++   Fil-C: disabled.  The SSE2 block is inline assembly with pointer
++   arguments, which the Fil-C safety validator does not support; fall
++   back to the plain C path instead. */
++#if 0 && defined(__SSE2__) && defined(__GNUC__) \
+   && (defined(__x86_64) || defined(__i386))
+ #define COGL_USE_PREMULT_SSE2
+ #endif
+diff --git a/mutter/cogl/cogl/cogl-cpu-caps.c b/mutter/cogl/cogl/cogl-cpu-caps.c
+--- a/mutter/cogl/cogl/cogl-cpu-caps.c
++++ b/mutter/cogl/cogl/cogl-cpu-caps.c
+@@ -43,6 +43,9 @@
+ static inline uint64_t
+ xgetbv (void)
+ {
++#if 0 /* Fil-C: raw XGETBV inline asm is rejected by the Fil-C safety
++       * validator, so report that no extended CPU state is OS-enabled;
++       * cogl then avoids its AVX code paths. */
+ #ifdef __GCC_ASM_FLAG_OUTPUTS__
+   uint32_t eax, edx;
+
+@@ -54,6 +57,9 @@
+   );
+
+   return ((uint64_t) edx << 32) | eax;
++#else
++  return 0;
++#endif
+ #else
+   return 0;
+ #endif
 diff --git a/mutter/cogl/cogl/cogl-enum-types.c.in b/mutter/cogl/cogl/cogl-enum-types.c.in
 --- a/mutter/cogl/cogl/cogl-enum-types.c.in
 +++ b/mutter/cogl/cogl/cogl-enum-types.c.in

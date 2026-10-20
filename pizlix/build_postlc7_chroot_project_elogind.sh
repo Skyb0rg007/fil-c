@@ -10,6 +10,10 @@ set -x
 rm -rf pizlonated-elogind
 tar -xf pizlonated-elogind.tar.gz
 cd pizlonated-elogind
+# The tarball is packaged from projects/elogind.projeny, which already carries
+# the Fil-C fixes: libelogind.sym/pam_elogind.sym export the pizlonated_*
+# aliases ("local: *" used to demote them, leaving the modules with zero
+# exports) and sd-bus error maps are walked as an ordinary pointer list.
 mkdir -v build
 cd build
 meson setup \

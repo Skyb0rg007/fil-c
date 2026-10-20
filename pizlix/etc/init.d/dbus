@@ -1,0 +1,125 @@
+#!/bin/sh
+
+########################################################################
+
+# Begin dbus
+
+#
+
+# Description : D-Bus system message bus daemon
+
+#
+
+# Authors     : Pizlix
+
+#
+
+# Version     : LFS x.x
+
+#
+
+# Notes       : dbus-daemon daemonizes itself (the stock system.conf has
+
+#               a <fork/> element) and writes its pid to /run/dbus/pid.
+
+#               elogind's bootscript requires this bus to be up first.
+
+#
+
+########################################################################
+
+### BEGIN INIT INFO
+
+# Provides:            dbus
+
+# Required-Start:      $local_fs mountvirtfs
+
+# Should-Start:
+
+# Required-Stop:       $local_fs mountvirtfs
+
+# Should-Stop:
+
+# Default-Start:       2 3 4 5
+
+# Default-Stop:        0 1 6
+
+# Short-Description:   D-Bus system message bus
+
+# Description:         Provides the D-Bus system bus used by elogind,
+
+#                      colord and the GNOME session
+
+# X-LFS-Provided-By:   LFS
+
+### END INIT INFO
+
+. /lib/lsb/init-functions
+
+case "${1}" in
+
+   start)
+
+      log_info_msg "Starting D-Bus system message bus..."
+
+      mkdir -p /run/dbus
+
+      rm -f /run/dbus/pid
+
+      dbus-daemon --system
+
+      evaluate_retval
+
+      ;;
+
+
+
+   stop)
+
+      log_info_msg "Stopping D-Bus system message bus..."
+
+      killproc -p /run/dbus/pid /usr/bin/dbus-daemon
+
+      evaluate_retval
+
+      ;;
+
+
+
+   restart)
+
+      ${0} stop
+
+      sleep 1
+
+      ${0} start
+
+      ;;
+
+
+
+   status)
+
+      statusproc -p /run/dbus/pid /usr/bin/dbus-daemon
+
+      ;;
+
+
+
+   *)
+
+      echo "Usage: ${0} {start|stop|restart|status}"
+
+      exit 1
+
+      ;;
+
+esac
+
+
+
+exit 0
+
+
+
+# End dbus

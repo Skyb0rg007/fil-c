@@ -28,6 +28,11 @@ set -x
 rm -rf pizlonated-mutter
 tar -xf pizlonated-mutter.tar.gz
 cd pizlonated-mutter
+# The tarball is packaged from projects/mutter.projeny, which already carries
+# the Fil-C fixes: cogl's CPU-caps detection no longer uses raw XGETBV inline
+# asm and the bitmap premultiply path no longer uses inline asm with pointer
+# arguments (both are rejected by the Fil-C safety validator; the C fallbacks
+# are used instead).
 mkdir -v build
 cd build
 meson setup ..                  \
