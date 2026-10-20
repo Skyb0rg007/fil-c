@@ -1,0 +1,29 @@
+URL: https://www.freedesktop.org/software/colord/releases/colord-1.4.7.tar.xz 90888f2c691b08332134169d5382b20d6f2319ee15b7e648cbe23e25049c5a49
+Origname: colord-1.4.7
+Name: colord
+
+    Fil-C patch for colord
+diff --git a/colord/lib/colord/colord.map b/colord/lib/colord/colord.map
+--- a/colord/lib/colord/colord.map
++++ b/colord/lib/colord/colord.map
+@@ -1,6 +1,8 @@
+ {
+ global:
+     cd_*;
++    /* Fil-C: the pizlonator renames symbols with a pizlonated_ prefix. */
++    pizlonated*;
+ local:
+     *;
+ };
+diff --git a/colord/lib/colorhug/colorhug.map b/colord/lib/colorhug/colorhug.map
+--- a/colord/lib/colorhug/colorhug.map
++++ b/colord/lib/colorhug/colorhug.map
+@@ -1,6 +1,8 @@
+ {
+ global:
+     ch_*;
++    /* Fil-C: the pizlonator renames symbols with a pizlonated_ prefix. */
++    pizlonated*;
+ local:
+     *;
+ };

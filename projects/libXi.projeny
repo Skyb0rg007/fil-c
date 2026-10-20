@@ -1,0 +1,6 @@
+URL: https://www.x.org/archive/individual/lib/libXi-1.8.2.tar.xz 8f0acdd884dc928c6c8bc4b6bca1f4c67c726fdb03e30910c09bdb41fd841d3e
+URL: https://xorg.freedesktop.org/archive/individual/lib/libXi-1.8.2.tar.xz 8f0acdd884dc928c6c8bc4b6bca1f4c67c726fdb03e30910c09bdb41fd841d3e
+Origname: libXi-1.8.2
+Name: libXi
+
+    Fil-C patch for libXi

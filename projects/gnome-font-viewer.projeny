@@ -1,0 +1,45 @@
+URL: https://download.gnome.org/sources/gnome-font-viewer/46/gnome-font-viewer-46.0.tar.xz d389f2349577143a38a7bb3df6c1dd45eb7314cae75a6a91a9428d9eab746690
+URL: https://ftp.gnome.org/pub/GNOME/sources/gnome-font-viewer/46/gnome-font-viewer-46.0.tar.xz d389f2349577143a38a7bb3df6c1dd45eb7314cae75a6a91a9428d9eab746690
+Origname: gnome-font-viewer-46.0
+Name: gnome-font-viewer
+
+    Fil-C patch for gnome-font-viewer
+diff --git a/gnome-font-viewer/meson-postinstall.sh b/gnome-font-viewer/meson-postinstall.sh
+--- a/gnome-font-viewer/meson-postinstall.sh
++++ b/gnome-font-viewer/meson-postinstall.sh
+@@ -2,6 +2,10 @@
+
+ # Package managers set this so we don't need to run
+ if [ -z "$DESTDIR" ]; then
+-  echo Updating desktop database...
+-  update-desktop-database -q ${MESON_INSTALL_PREFIX}/share/applications
++  # Fil-C: update-desktop-database (desktop-file-utils) is not part of the
++  # pizlonated system yet; only refresh the MIME database when it exists.
++  if command -v update-desktop-database >/dev/null 2>&1; then
++    echo Updating desktop database...
++    update-desktop-database -q ${MESON_INSTALL_PREFIX}/share/applications
++  fi
+ fi
+diff --git a/gnome-font-viewer/src/font-view-window.c b/gnome-font-viewer/src/font-view-window.c
+--- a/gnome-font-viewer/src/font-view-window.c
++++ b/gnome-font-viewer/src/font-view-window.c
+@@ -758,11 +758,16 @@
+ }
+
+ static void
+-action_toggle_search_cb (FontViewWindow *self)
++action_toggle_search_cb (GtkWidget  *widget,
++                         const char *action_name,
++                         GVariant   *parameter)
++/* Fil-C: gtk_widget_class_install_action requires the exact
++ * GtkWidgetActionActivateFunc signature; the widget is the FontViewWindow. */
+ {
++  FontViewWindow *self = FONT_VIEW_WINDOW (widget);
+
+- gtk_toggle_button_set_active (self->search_button,
+-                               !gtk_toggle_button_get_active (self->search_button));
++  gtk_toggle_button_set_active (self->search_button,
++                                !gtk_toggle_button_get_active (self->search_button));
+ }
+
+ void

@@ -1,0 +1,63 @@
+URL: https://download.gnome.org/sources/gnome-session/46/gnome-session-46.0.tar.xz 2db296581c19f37dfb7ac0a491ed275eb3808c16b315d93e00890dfba1a0a72c
+URL: https://ftp.gnome.org/pub/GNOME/sources/gnome-session/46/gnome-session-46.0.tar.xz 2db296581c19f37dfb7ac0a491ed275eb3808c16b315d93e00890dfba1a0a72c
+Origname: gnome-session-46.0
+Name: gnome-session
+
+    Fil-C patch for gnome-session
+diff --git a/gnome-session/gnome-session/meson.build b/gnome-session/gnome-session/meson.build
+--- a/gnome-session/gnome-session/meson.build
++++ b/gnome-session/gnome-session/meson.build
+@@ -92,7 +92,9 @@
+ )
+
+ units = [
+-  ['test-inhibit', [], session_deps + [gtk_dep]],
++  # Fil-C: test-inhibit needs gdk/gdkx.h (the gtk3 X11 backend, which the
++  # pizlonated system does not build); it is a non-installed test tool, so
++  # it is simply dropped here.
+   ['test-client-dbus', [], [gio_dep]],
+   ['test-process-helper', files('gsm-process-helper.c'), [gio_dep]]
+ ]
+diff --git a/gnome-session/meson.build b/gnome-session/meson.build
+--- a/gnome-session/meson.build
++++ b/gnome-session/meson.build
+@@ -113,7 +113,13 @@
+                                                  pkgconfig_define: ['prefix', session_prefix])
+ endif
+
+-libsystemd_dep = dependency('libsystemd', version: '>= 209', required: true)
++# Fil-C: the pizlonated system has no libsystemd; elogind is the logind
++# (and sd-journal API) provider, so fall back to it.  libelogind exports the
++# same LIBSYSTEMD_209 symbols as libsystemd 209+.
++libsystemd_dep = dependency('libsystemd', version: '>= 209', required: false)
++if not libsystemd_dep.found()
++  libsystemd_dep = dependency('libelogind', version: '>= 209')
++endif
+ session_bin_deps += libsystemd_dep
+
+ configure_file(
+diff --git a/gnome-session/tools/meson.build b/gnome-session/tools/meson.build
+--- a/gnome-session/tools/meson.build
++++ b/gnome-session/tools/meson.build
+@@ -29,6 +29,12 @@
+   programs += [['gnome-session-selector', deps, cflags, session_bindir]]
+ endif
+
++# Fil-C: the check-accelerated helpers are X11-only (gdk/gdkx.h, GL/glx.h,
++# XComposite); the pizlonated system is Wayland-only (gtk3 without the X11
++# backend, mesa without GLX).  gnome-session's main() skips check_gl()
++# anyway whenever DISPLAY is unset, so the helpers are not built here.
++if false
++
+ deps = [
+   gtk_dep,
+   x11_dep,
+@@ -55,6 +61,8 @@
+ cflags = '-DLIBEXECDIR="@0@"'.format(session_libexecdir)
+
+ programs += [['gnome-session-check-accelerated', deps, cflags, session_libexecdir]]
++
++endif # Fil-C: X11-only check-accelerated helpers
+
+ foreach program: programs
+   executable(
