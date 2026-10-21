@@ -27,15 +27,35 @@
 set -e
 set -x
 
+# Where the host's kernel UAPI headers live. That's /usr/include on FHS distros;
+# elsewhere (e.g. NixOS) ask the host C compiler where it finds them. Set
+# FILC_HOST_INCLUDE to override.
+HOSTINC=$FILC_HOST_INCLUDE
+if test -z "$HOSTINC"
+then
+    if test -d /usr/include/linux
+    then
+        HOSTINC=/usr/include
+    else
+        HOSTINC=`echo '#include <linux/version.h>' | ${CC:-cc} -E -H -x c - 2>&1 >/dev/null \
+            | sed -n 's|^\. \(.*\)/linux/version\.h$|\1|p' | head -n 1`
+    fi
+fi
+if test ! -d "$HOSTINC/linux"
+then
+    echo "Cannot find the kernel UAPI headers (linux/*.h); set FILC_HOST_INCLUDE." 1>&2
+    exit 1
+fi
+
 rm -rf pizfix/os-include
 mkdir -p pizfix/os-include
 cd pizfix/os-include
-ln -s /usr/include/linux .
+ln -s $HOSTINC/linux .
 arch=$(uname -m)
-if test -d /usr/include/$(arch)-linux-gnu/asm
+if test -d $HOSTINC/$(arch)-linux-gnu/asm
 then
-    ln -s /usr/include/$(arch)-linux-gnu/asm .
+    ln -s $HOSTINC/$(arch)-linux-gnu/asm .
 else
-    ln -s /usr/include/asm .
+    ln -s $HOSTINC/asm .
 fi
-ln -s /usr/include/asm-generic .
+ln -s $HOSTINC/asm-generic .
