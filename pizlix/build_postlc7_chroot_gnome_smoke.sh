@@ -44,4 +44,11 @@ kill $(pidof elogind) || true
 sleep 1
 kill $(cat /run/dbus/pid)
 
+# elogind mounted cgroup2 at /sys/fs/cgroup while it ran.  Take that
+# nested mount down too, so the build's unmount step can unmount the
+# chroot's /sys (otherwise /sys stays busy and the postlc7 snapshot tar
+# walks live sysfs).  If elogind left /sys/fs/cgroup as a plain dir,
+# leave it: extraction recreates the empty dir.
+umount /sys/fs/cgroup 2>/dev/null || true
+
 echo GNOME-SMOKE-OK

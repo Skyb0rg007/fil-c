@@ -68,6 +68,12 @@ To see what this thing is really capable of, log in as a non-root user (like `pi
 
 And enjoy a totally memory safe GUI!
 
+You can also run a GNOME Wayland session. Log in as a non-root user and do:
+
+    pizlix-gnome
+
+This starts mutter as the Wayland compositor with gnome-session managing it (a weston-terminal will be autostarted; launch GNOME apps from there, e.g. `gnome-text-editor`).
+
 <a name="stages"></a>
 ## Build Stages
 
@@ -114,6 +120,14 @@ This builds the Wayland environment and Weston so that you can have a GUI.
 If you want to just do this stage of the build and nothing more, do `sudo ./build_postlc3.sh`.
 
 If you want to start the build here, do `sudo ./build_with_recovered_postlc2.sh`.
+
+### Post-LC 7
+
+This builds the GNOME desktop on top of the Wayland environment: dbus, elogind, dconf, mutter (the Wayland compositor), gnome-session, libadwaita, and a couple of GNOME apps. It is the Wayland analog of Weston.
+
+If you want to just do this stage of the build and nothing more, do `sudo ./build_postlc7.sh`.
+
+If you want to start the build here, do `sudo ./build_with_recovered_postlc6.sh`.
 
 ### Other Tricks
 

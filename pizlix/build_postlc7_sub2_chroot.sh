@@ -74,6 +74,24 @@ hash -r
 # Order: xkbcommon X11 rebuild first (mutter needs xkbcommon-x11), then
 # gnome-desktop (mutter needs gnome-desktop-4), then mutter itself.
 
+# Sprint 7a: rebuild the GL/EGL stack from the folded Fil-C fixes before
+# anything that compiles against it.  The postlc6 snapshot's mesa was built
+# before the fil-c-compat fixes were folded into projects/mesa.projeny (EGL
+# native handles as real pointers, dri.sym pizlonated* exports, xgetbv,
+# sparse_array real-pointer links, glsl_types name_id decoding, nir_src
+# provenance-carrying parent pointers, queryobj buffer pointers), and its
+# libepoxy/gtk4 were compiled against the unfixed EGL headers.  Order
+# matters: mesa installs the fixed headers, then libepoxy and gtk4 build
+# against them, and mutter below builds against all of the above.
+./build_postlc4_chroot_project_mesa.sh
+hash -r
+
+./build_postlc6_chroot_project_libepoxy.sh
+hash -r
+
+./build_postlc4_chroot_project_gtk4.sh
+hash -r
+
 # xkbcommon rebuilt with -D enable-x11=true (installs over the postlc3
 # build which had X11 disabled).
 ./build_postlc7_chroot_project_xkbcommon.sh

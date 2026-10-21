@@ -20,6 +20,17 @@ rm -vf projects/*/pizlonated-*.tar.gz
 # source directory with package-source.sh (same name as in the postlc3
 # stage).  postlc7 rebuilds it with X11 support (xkbcommon-x11) for mutter.
 ./package-source.sh projects/libxkbcommon-xkbcommon-1.11.0 pizlonated-xkbcommon
+
+# Sprint 7a: the postlc6 snapshot's installed mesa/libepoxy/gtk4 predate the
+# folded Fil-C fixes (EGL native handles as real pointers, dri.sym
+# pizlonated* exports, xgetbv, sparse_array, glsl_types name_id, nir
+# _parent, queryobj), and postlc7 is the first stage to rebuild anything
+# that sits on top of them (mutter).  So package the fixed GL/EGL stack
+# here: mesa from its projeny patch, gtk4 from its checked-in source dir.
+# (libepoxy needs no repackaging; its stock tarball is already in /sources
+# from the postlc6 stage.)
+filc/projeny package projects/mesa.projeny projects/mesa/pizlonated-mesa.tar.gz
+./package-source.sh projects/gtk-4.14.5 pizlonated-gtk4
 filc/projeny package projects/dbus.projeny projects/dbus/pizlonated-dbus.tar.gz
 filc/projeny package projects/Linux-PAM.projeny projects/Linux-PAM/pizlonated-pam.tar.gz
 filc/projeny package projects/json-glib.projeny projects/json-glib/pizlonated-json-glib.tar.gz

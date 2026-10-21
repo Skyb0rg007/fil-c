@@ -19,6 +19,13 @@ set -u
 
 export GBM_ALWAYS_SOFTWARE=true
 
+# Fil-C: NIR_DEBUG=novalidate disables NIR's shader validator.  The
+# validator bit-tags nir_src::_parent (packing a tag bit into what is now a
+# real parent pointer) and trips over the provenance-carrying _parent_p
+# field; a proper fix needs a validator-side refactor, so run with
+# validation off.  Known limitation, see the postlc7 notes.
+export NIR_DEBUG=novalidate
+
 # Remove stale Wayland sockets from previous (crashed) compositor runs:
 # otherwise the readiness check below sees a dead socket file and hands
 # control to the next phase before mutter has bound a live one.

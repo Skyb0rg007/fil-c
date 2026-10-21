@@ -35,6 +35,11 @@ cp -v build_postlc7_sub2_chroot.sh $LFS/sources
 cp -v build_postlc7_chroot_project_*.sh $LFS/sources
 cp -v build_postlc7_chroot_setup_scripts_for_gnome.sh $LFS/sources
 cp -v build_postlc7_chroot_gnome_smoke.sh $LFS/sources
+# Sprint 7a: the GL/EGL stack is rebuilt in this stage from the folded
+# Fil-C fixes (see build_postlc7_sub2_chroot.sh); copy its chroot scripts.
+cp -v build_postlc4_chroot_project_mesa.sh $LFS/sources
+cp -v build_postlc6_chroot_project_libepoxy.sh $LFS/sources
+cp -v build_postlc4_chroot_project_gtk4.sh $LFS/sources
 # Plain tarball needed by postlc7: the shadow PAM rebuild compares against
 # it (the build itself uses pizlonated-shadow.tar.gz, which is already in
 # /sources from the earlier stage that built shadow without PAM).
