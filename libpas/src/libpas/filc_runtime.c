@@ -12061,6 +12061,7 @@ static void no_new_privs_handshake_callback(void* arg)
         data->the_errno = errno;
 }
 
+#if PAS_COSMO
 typedef struct {
     struct sock_fprog* fprog;
     int the_errno;
@@ -12076,6 +12077,7 @@ static void set_seccomp_handshake_callback(void* arg)
     if (result < 0)
         data->the_errno = errno;
 }
+#endif /* PAS_COSMO */
 
 int filc_native_zsys_prctl(filc_thread* my_thread, int option, filc_cc_cursor* args)
 {
@@ -12168,6 +12170,7 @@ int filc_native_zsys_prctl(filc_thread* my_thread, int option, filc_cc_cursor* a
             native_fprog.len = fprog->len;
             native_fprog.filter = (struct sock_filter*)filc_ptr_ptr(filter_ptr);
             
+#if PAS_COSMO
             filc_exit(my_thread);
             set_seccomp_data data;
             data.fprog = &native_fprog;
@@ -12180,6 +12183,33 @@ int filc_native_zsys_prctl(filc_thread* my_thread, int option, filc_cc_cursor* a
                 return -1;
             }
             return 0;
+#else /* PAS_COSMO -> so !PAS_COSMO */
+            /* We install the filter on every thread with SECCOMP_FILTER_FLAG_TSYNC rather than by
+               handshaking the runtime's threads, since some threads never handshake: the musl
+               flavor runs main on a new thread and parks the initial thread in pause() for good.
+               The kernel only lets TSYNC sync a thread whose filters are an ancestor of the
+               caller's, which always holds since every filter gets installed this way.
+
+               Cosmo still handshakes, so there the parked initial thread goes unfiltered. Its
+               syscall() only knows a few syscalls, and its seccomp() makes syscall 211 (sendmsg)
+               on aarch64. */
+            filc_exit(my_thread);
+            long result = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC,
+                                  &native_fprog);
+            int my_errno = errno;
+            filc_enter(my_thread);
+            if (result < 0) {
+                filc_set_errno(my_errno);
+                return -1;
+            }
+            /* TSYNC returns the ID of a thread that it couldn't sync. Report that like libseccomp
+               and SECCOMP_FILTER_FLAG_TSYNC_ESRCH do. */
+            if (result > 0) {
+                filc_set_errno(ESRCH);
+                return -1;
+            }
+            return 0;
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
         }
 
         /* Unknown or unsupported mode */
