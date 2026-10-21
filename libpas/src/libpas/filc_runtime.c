@@ -166,6 +166,10 @@ int landlock_create_ruleset(const struct landlock_ruleset_attr *, size_t, unsign
 #ifndef SYS_listmount
 #define SYS_listmount 458
 #endif
+/* fchroot is new in Linux 7.3. */
+#ifndef SYS_fchroot
+#define SYS_fchroot 472
+#endif
 
 /* Landlock's UAPI, from <linux/landlock.h>. We don't include that header so that the runtime
    builds against kernel headers from before Landlock (5.13) or before any of its rule types.
@@ -9593,6 +9597,19 @@ int filc_native_zsys_chroot(filc_thread* my_thread, filc_ptr path_ptr)
     if (result < 0)
         filc_set_errno(my_errno);
     return result;
+}
+
+int filc_native_zsys_fchroot(filc_thread* my_thread, int fd, unsigned flags)
+{
+#if PAS_COSMO
+    PAS_UNUSED_PARAM(my_thread);
+    PAS_UNUSED_PARAM(fd);
+    PAS_UNUSED_PARAM(flags);
+    filc_internal_panic(NULL, "fchroot not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    check_fd(fd);
+    return FILC_SYSCALL(my_thread, syscall(SYS_fchroot, fd, flags));
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 
 int filc_native_zsys_setuid(filc_thread* my_thread, unsigned uid)

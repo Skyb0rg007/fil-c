@@ -357,4 +357,5 @@
 #define __NR_landlock_restrict_self	446
 #define __NR_statmount		457
 #define __NR_listmount		458
+#define __NR_fchroot		472
 

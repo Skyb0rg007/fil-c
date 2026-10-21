@@ -711,4 +711,5 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE. */
 #define SYS_fchmodat2 452
 #define SYS_statmount 457
 #define SYS_listmount 458
+#define SYS_fchroot 472
 

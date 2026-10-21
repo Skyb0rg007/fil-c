@@ -644,6 +644,11 @@ long zsys_syscall(long n, ...)
         int_result = 1;
         break;
 
+    case SYS_fchroot:
+        callee = zsys_fchroot;
+        int_result = 1;
+        break;
+
     case SYS_setreuid:
         callee = zsys_setreuid;
         int_result = 1;

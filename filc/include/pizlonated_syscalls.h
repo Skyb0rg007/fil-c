@@ -107,6 +107,7 @@ int zsys_setsid(void);
 int zsys_execve(const char* pathname, char*const* argv, char*const* envp);
 int zsys_getppid(void);
 int zsys_chroot(const char* path);
+int zsys_fchroot(int fd, unsigned flags);
 int zsys_setuid(unsigned uid);
 int zsys_seteuid(unsigned uid);
 int zsys_setreuid(unsigned ruid, unsigned euid);
