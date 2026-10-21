@@ -1,0 +1,16 @@
+URL: https://dbus.freedesktop.org/releases/dbus/dbus-1.16.2.tar.xz b1d1f22858a8f04665e5dca29d194f892620f00fd3e3f4e89dd208e78868436e
+Origname: dbus-1.16.2
+Name: dbus
+
+    Fil-C patch for dbus
+diff --git a/dbus/dbus/Version.in b/dbus/dbus/Version.in
+--- a/dbus/dbus/Version.in
++++ b/dbus/dbus/Version.in
+@@ -1,6 +1,7 @@
+ LIBDBUS_1_@SOVERSION@ {
+   global:
+     dbus_*;
++    pizlonated*;
+   local:
+     *;
+ };

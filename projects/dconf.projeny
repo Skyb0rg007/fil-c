@@ -1,0 +1,47 @@
+URL: https://download.gnome.org/sources/dconf/0.40/dconf-0.40.0.tar.xz eb7184b7a541b6a34511b73249e99236b4402bf015c382598cdbe303d0cb0cf9
+URL: https://ftp.gnome.org/pub/GNOME/sources/dconf/0.40/dconf-0.40.0.tar.xz eb7184b7a541b6a34511b73249e99236b4402bf015c382598cdbe303d0cb0cf9
+Origname: dconf-0.40.0
+Name: dconf
+
+    Fil-C patch for dconf
+diff --git a/dconf/client/dconf-client.c b/dconf/client/dconf-client.c
+--- a/dconf/client/dconf-client.c
++++ b/dconf/client/dconf-client.c
+@@ -133,9 +133,12 @@
+    **/
+   dconf_client_signals[SIGNAL_CHANGED] = g_signal_new ("changed", DCONF_TYPE_CLIENT, G_SIGNAL_RUN_LAST,
+                                                        0, NULL, NULL, NULL, G_TYPE_NONE, 3,
+-                                                       G_TYPE_STRING | G_SIGNAL_TYPE_STATIC_SCOPE,
+-                                                       G_TYPE_STRV | G_SIGNAL_TYPE_STATIC_SCOPE,
+-                                                       G_TYPE_STRING | G_SIGNAL_TYPE_STATIC_SCOPE);
++                                                       /* Fil-C: GType is a pointer, so the flag
++                                                          OR goes through uintptr_t, matching
++                                                          how the pizlonated glib does it. */
++                                                       (GType) ((uintptr_t) G_TYPE_STRING | (uintptr_t) G_SIGNAL_TYPE_STATIC_SCOPE),
++                                                       (GType) ((uintptr_t) G_TYPE_STRV | (uintptr_t) G_SIGNAL_TYPE_STATIC_SCOPE),
++                                                       (GType) ((uintptr_t) G_TYPE_STRING | (uintptr_t) G_SIGNAL_TYPE_STATIC_SCOPE));
+
+   /**
+    * DConfClient::writability-changed:
+@@ -149,7 +152,8 @@
+   dconf_client_signals[SIGNAL_WRITABILITY_CHANGED] = g_signal_new ("writability-changed", DCONF_TYPE_CLIENT,
+                                                                    G_SIGNAL_RUN_LAST, 0, NULL, NULL, NULL,
+                                                                    G_TYPE_NONE, 1,
+-                                                                   G_TYPE_STRING | G_SIGNAL_TYPE_STATIC_SCOPE);
++                                                                   /* Fil-C: see above. */
++                                                                   (GType) ((uintptr_t) G_TYPE_STRING | (uintptr_t) G_SIGNAL_TYPE_STATIC_SCOPE));
+ }
+
+ typedef struct
+diff --git a/dconf/client/symbol.map b/dconf/client/symbol.map
+--- a/dconf/client/symbol.map
++++ b/dconf/client/symbol.map
+@@ -9,6 +9,8 @@
+   dconf_is_rel_path;
+   dconf_is_rel_key;
+   dconf_is_rel_dir;
++  /* Fil-C: the pizlonator renames symbols with a pizlonated_ prefix. */
++  pizlonated*;
+ local:
+   *;
+ };

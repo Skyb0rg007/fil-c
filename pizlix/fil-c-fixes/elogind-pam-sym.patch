@@ -1,0 +1,12 @@
+--- a/src/login/pam_elogind.sym
++++ b/src/login/pam_elogind.sym
+@@ -4,5 +4,9 @@
+ global:
+         pam_sm_close_session;
+         pam_sm_open_session;
++        /* Fil-C pizlonation exports pizlonated_<name> aliases and libpam's
++         * dlsym looks those up; they must not be caught by "local: *". */
++        pizlonated_pam_sm_close_session;
++        pizlonated_pam_sm_open_session;
+ local: *;
+ };

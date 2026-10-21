@@ -1,0 +1,111 @@
+URL: https://github.com/elogind/elogind/archive/v255.27/elogind-255.27.tar.gz ad3579ff065a5b8d9ab79dcc33a64f681c256c52692994e9c2a942c0073c5d39
+Origname: elogind-255.27
+Name: elogind
+
+    Fil-C patch for elogind
+diff --git a/elogind/src/libelogind/libelogind.sym b/elogind/src/libelogind/libelogind.sym
+--- a/elogind/src/libelogind/libelogind.sym
++++ b/elogind/src/libelogind/libelogind.sym
+@@ -9,6 +9,8 @@
+
+ LIBSYSTEMD_209 {
+ global:
++        /* Fil-C: the pizlonator renames symbols with a pizlonated_ prefix. */
++        pizlonated*;
+         /* sd-journal */
+         sd_journal_print;
+         sd_journal_printv;
+diff --git a/elogind/src/libelogind/sd-bus/bus-error.c b/elogind/src/libelogind/sd-bus/bus-error.c
+--- a/elogind/src/libelogind/sd-bus/bus-error.c
++++ b/elogind/src/libelogind/sd-bus/bus-error.c
+@@ -53,10 +53,22 @@
+         SD_BUS_ERROR_MAP_END
+ };
+
+-/* GCC maps this magically to the beginning and end of the BUS_ERROR_MAP section */
+-extern const sd_bus_error_map __start_SYSTEMD_BUS_ERROR_MAP[];
+-extern const sd_bus_error_map __stop_SYSTEMD_BUS_ERROR_MAP[];
++/// elogind-FilC-begin
++/* Fil-C: GCC maps these magically to the beginning and end of the
++   BUS_ERROR_MAP section, but the pizlonator rewrites symbol references, so
++   the linker-provided __start_/__stop_ boundary symbols never match.  Walk
++   the built-in maps through an ordinary pointer list instead.  Each map is
++   NULL-terminated (SD_BUS_ERROR_MAP_END), which the additional_error_maps
++   scanner below already understands. */
++extern const sd_bus_error_map bus_common_errors[];
+
++static const sd_bus_error_map *const builtin_error_maps[] = {
++        bus_standard_errors,
++        bus_common_errors,
++        NULL,
++};
++/// elogind-FilC-end
++
+ /* Additional maps registered with sd_bus_error_add_map() are in this
+  * NULL terminated array */
+ static const sd_bus_error_map **additional_error_maps = NULL;
+@@ -91,26 +103,22 @@
+                                 }
+                         }
+
+-        m = ALIGN_PTR(__start_SYSTEMD_BUS_ERROR_MAP);
+-        while (m < __stop_SYSTEMD_BUS_ERROR_MAP) {
+-                /* For magic ELF error maps, the end marker might
+-                 * appear in the middle of things, since multiple maps
+-                 * might appear in the same section. Hence, let's skip
+-                 * over it, but realign the pointer to the next 8 byte
+-                 * boundary, which is the selected alignment for the
+-                 * arrays. */
+-                if (m->code == BUS_ERROR_MAP_END_MARKER) {
+-                        m = ALIGN_PTR(m + 1);
+-                        continue;
+-                }
++/// elogind-FilC-begin
++        {
++                const sd_bus_error_map *const *bmap;
+
+-                if (streq(m->name, name)) {
+-                        assert(m->code > 0);
+-                        return m->code;
+-                }
++                for (bmap = builtin_error_maps; *bmap; bmap++)
++                        for (m = *bmap;; m++) {
++                                if (m->code == BUS_ERROR_MAP_END_MARKER)
++                                        break;
+
+-                m++;
++                                if (streq(m->name, name)) {
++                                        assert(m->code > 0);
++                                        return m->code;
++                                }
++                        }
+         }
++/// elogind-FilC-end
+
+         return EIO;
+ }
+diff --git a/elogind/src/libelogind/sd-bus/bus-error.h b/elogind/src/libelogind/sd-bus/bus-error.h
+--- a/elogind/src/libelogind/sd-bus/bus-error.h
++++ b/elogind/src/libelogind/sd-bus/bus-error.h
+@@ -37,13 +37,18 @@
+  * warn for the unknown attribute, so just disable -Wattributes.
+  */
+
++/// elogind-FilC-begin
++/* Fil-C: do not place the maps in a magic ELF section.  The section
++   approach relies on the linker synthesizing __start_/__stop_ boundary
++   symbols for the section, but the pizlonator rewrites symbol references
++   to pizlonated-prefixed names, which never match those linker symbols.
++   Plain arrays are used instead and bus-error.c walks them through an
++   ordinary pointer list. */
+ #define BUS_ERROR_MAP_ELF_REGISTER                                      \
+         _Pragma("GCC diagnostic ignored \"-Wattributes\"")              \
+-        _section_("SYSTEMD_BUS_ERROR_MAP")                              \
+         _used_                                                          \
+-        _retain_                                                        \
+-        _alignptr_                                                      \
+         _variable_no_sanitize_address_
++/// elogind-FilC-end
+
+ #define BUS_ERROR_MAP_ELF_USE(errors)                                   \
+         extern const sd_bus_error_map errors[];                         \
