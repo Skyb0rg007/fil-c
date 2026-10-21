@@ -496,6 +496,9 @@ long zsys_syscall(long n, ...)
 	
     void* syscall_args = (char*)zargs() + 8;
     void* callee;
+    /* Whether callee returns int rather than long. zcall() hands back the callee's return buffer
+       as it is, so we have to sign-extend an int ourselves, or -1 comes out as 4294967295. */
+    _Bool int_result = 0;
     switch (n) {
     case SYS_futex: {
         struct futex_args* args = (struct futex_args*)syscall_args;
@@ -542,6 +545,7 @@ long zsys_syscall(long n, ...)
 
     case SYS_getdents64:
         callee = zsys_getdents;
+        int_result = 1;
         break;
 
     case SYS_set_mempolicy:
@@ -554,18 +558,22 @@ long zsys_syscall(long n, ...)
 
     case SYS_landlock_create_ruleset:
         callee = zsys_landlock_create_ruleset;
+        int_result = 1;
         break;
 
     case SYS_landlock_add_rule:
         callee = zsys_landlock_add_rule;
+        int_result = 1;
         break;
 
     case SYS_landlock_restrict_self:
         callee = zsys_landlock_restrict_self;
+        int_result = 1;
         break;
 
     case SYS_perf_event_open:
         callee = zsys_perf_event_open;
+        int_result = 1;
         break;
 
     case SYS_gettid:
@@ -578,6 +586,7 @@ long zsys_syscall(long n, ...)
 
     case SYS_getpid:
         callee = zsys_getpid;
+        int_result = 1;
         break;
 
     case SYS_fchmodat2:
@@ -587,19 +596,23 @@ long zsys_syscall(long n, ...)
            In particular, zsys_fchmodat does take a flags argument, and correctly handles the case
            where it's nonzero. */
         callee = zsys_fchmodat;
+        int_result = 1;
         break;
 
     case SYS_settimeofday:
         callee = zsys_settimeofday;
+        int_result = 1;
         break;
 
     case SYS_close:
         /* NOTE: Folks do this because they want a "nocancel" version of close(2). */
         callee = zsys_close;
+        int_result = 1;
         break;
 
     case SYS_statx:
         callee = zsys_statx;
+        int_result = 1;
         break;
 
     case SYS_copy_file_range:
@@ -608,22 +621,27 @@ long zsys_syscall(long n, ...)
 
     case SYS_renameat2:
         callee = zsys_renameat2;
+        int_result = 1;
         break;
 
     case SYS_pidfd_open:
         callee = zsys_pidfd_open;
+        int_result = 1;
         break;
 
     case SYS_setreuid:
         callee = zsys_setreuid;
+        int_result = 1;
         break;
 
     case SYS_setregid:
         callee = zsys_setregid;
+        int_result = 1;
         break;
 
     case SYS_setresuid:
         callee = zsys_setresuid;
+        int_result = 1;
         break;
 
     case SYS_keyctl:
@@ -632,22 +650,27 @@ long zsys_syscall(long n, ...)
 
     case SYS_sched_setaffinity:
         callee = zsys_sched_setaffinity;
+        int_result = 1;
         break;
 
     case SYS_sched_getaffinity:
         callee = zsys_raw_sched_getaffinity;
+        int_result = 1;
         break;
 
     case SYS_add_key:
         callee = zsys_add_key;
+        int_result = 1;
         break;
 
     case SYS_request_key:
         callee = zsys_request_key;
+        int_result = 1;
         break;
 
     case SYS_memfd_create:
         callee = zsys_memfd_create;
+        int_result = 1;
         break;
 
     case SYS_write:
@@ -656,6 +679,7 @@ long zsys_syscall(long n, ...)
 
     case SYS_openat2:
         callee = zsys_openat2;
+        int_result = 1;
         break;
 
     /* The new mount API.  open_tree, move_mount, fsopen, fsconfig, fsmount, fspick,
@@ -664,30 +688,37 @@ long zsys_syscall(long n, ...)
 
     case SYS_open_tree:
         callee = zsys_open_tree;
+        int_result = 1;
         break;
 
     case SYS_move_mount:
         callee = zsys_move_mount;
+        int_result = 1;
         break;
 
     case SYS_fsopen:
         callee = zsys_fsopen;
+        int_result = 1;
         break;
 
     case SYS_fsconfig:
         callee = zsys_fsconfig;
+        int_result = 1;
         break;
 
     case SYS_fsmount:
         callee = zsys_fsmount;
+        int_result = 1;
         break;
 
     case SYS_fspick:
         callee = zsys_fspick;
+        int_result = 1;
         break;
 
     case SYS_mount_setattr:
         callee = zsys_mount_setattr;
+        int_result = 1;
         break;
 
     case SYS_statmount:
@@ -705,7 +736,10 @@ long zsys_syscall(long n, ...)
         return -1;
     }
 	
-    return *(long*)zcall(callee, syscall_args);
+    void* result = zcall(callee, syscall_args);
+    if (int_result)
+        return *(int*)result;
+    return *(long*)result;
 }
 
 void* zthread_self_cookie(void)
