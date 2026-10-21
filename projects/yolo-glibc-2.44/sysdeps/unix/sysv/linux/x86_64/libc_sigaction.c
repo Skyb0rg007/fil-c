@@ -79,6 +79,10 @@ asm									\
    "__" #name ":\n"							\
    "	movq $" #syscall ", %rax\n"					\
    "	syscall\n"							\
+   /* If rt_sigreturn fails (say, a seccomp filter denies it), we must	\
+      not run on into whatever follows.  Fil-C never lets SIGILL have a	\
+      handler, so this kills us.  */					\
+   "	ud2\n"								\
    ".LEND_" #name ":\n"							\
    ".section .eh_frame,\"a\",@progbits\n"				\
    ".LSTARTFRAME_" #name ":\n"						\

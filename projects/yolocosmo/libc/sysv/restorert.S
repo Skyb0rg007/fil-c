@@ -30,9 +30,14 @@ __restore_rt:					// @see gdb/amd64-linux-tdep.c
 #ifdef __x86_64__
 	mov	$__NR_linux_sigreturn,%rax	// [sic]
 	syscall
+//	If rt_sigreturn fails (say, a seccomp filter denies it), we must not
+//	run on into whatever follows. Fil-C never lets SIGILL have a handler,
+//	so this kills us.
+	ud2
 #elif defined(__aarch64__)
 	mov	x8,#139				// __NR_rt_sigreturn
 	svc	#0
+	udf	#0				// See above.
 #elif defined(__powerpc64__)
 	li	0,172				// __NR_rt_sigreturn
 	sc

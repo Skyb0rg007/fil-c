@@ -1,0 +1,7 @@
+return:
+  success
+output-includes:
+  - "child died of signal 4"
+  - "rt_sigreturn failure trapped"
+output-excludes:
+  - "ran on after a failed rt_sigreturn"

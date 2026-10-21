@@ -18,13 +18,32 @@
 /* Required for AArch32 compatibility. */
 #define SA_RESTORER	0x04000000
 
+/* Fil-C: always return from handlers through our own restorer rather than the
+   vDSO's.  If rt_sigreturn fails (say, a seccomp filter denies it), the vDSO's
+   trampoline runs on into whatever follows it, while ours traps.  */
+extern void restore_rt (void) asm ("__restore_rt") attribute_hidden;
+
 #define SET_SA_RESTORER(kact, act)		\
  ({						\
-    if ((kact)->sa_flags & SA_RESTORER)		\
-      (kact)->sa_restorer = (act)->sa_restorer;	\
+    (kact)->sa_flags |= SA_RESTORER;		\
+    (kact)->sa_restorer = &restore_rt;		\
  })
 
 #define RESET_SA_RESTORER(act, kact)		\
   (act)->sa_restorer = (kact)->sa_restorer;
 
 #include <sysdeps/unix/sysv/linux/libc_sigaction.c>
+
+/* Debuggers and unwinders recognize this exact instruction sequence as a signal
+   trampoline.  Fil-C never lets SIGILL have a handler, so the udf kills us.  */
+asm
+  (
+   "	.text\n"
+   "	nop\n"
+   "	.type __restore_rt,%function\n"
+   "__restore_rt:\n"
+   "	mov x8, #" CFI_STRINGIFY (__NR_rt_sigreturn) "\n"
+   "	svc #0\n"
+   "	udf #0\n"
+   "	.size __restore_rt, .-__restore_rt\n"
+   );
