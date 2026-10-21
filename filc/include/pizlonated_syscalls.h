@@ -260,6 +260,7 @@ int zsys_eventfd(unsigned initval, int flags);
 long zsys_listxattr(const char* path, char* list, __SIZE_TYPE__ size);
 long zsys_llistxattr(const char* path, char* list, __SIZE_TYPE__ size);
 long zsys_flistxattr(int fd, char* list, __SIZE_TYPE__ size);
+int zsys_seccomp(unsigned operation, unsigned flags, void* args);
 int zsys_landlock_create_ruleset(const void* attr, __SIZE_TYPE__ size, unsigned flags);
 int zsys_landlock_add_rule(int fd, int rule_type, const void* rule_attr, unsigned flags);
 int zsys_landlock_restrict_self(int fd, unsigned flags);

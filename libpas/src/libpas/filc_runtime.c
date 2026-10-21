@@ -193,6 +193,35 @@ struct filc_landlock_net_port_attr {
     uint64_t port;
 };
 
+/* Seccomp UAPI that is newer than <linux/seccomp.h> itself. */
+#ifndef SECCOMP_GET_ACTION_AVAIL
+#define SECCOMP_GET_ACTION_AVAIL 2
+#endif
+#ifndef SECCOMP_GET_NOTIF_SIZES
+#define SECCOMP_GET_NOTIF_SIZES 3
+#endif
+#ifndef SECCOMP_FILTER_FLAG_LOG
+#define SECCOMP_FILTER_FLAG_LOG (1UL << 1)
+#endif
+#ifndef SECCOMP_FILTER_FLAG_SPEC_ALLOW
+#define SECCOMP_FILTER_FLAG_SPEC_ALLOW (1UL << 2)
+#endif
+#ifndef SECCOMP_FILTER_FLAG_TSYNC_ESRCH
+#define SECCOMP_FILTER_FLAG_TSYNC_ESRCH (1UL << 4)
+#endif
+#ifndef SECCOMP_RET_KILL_PROCESS
+#define SECCOMP_RET_KILL_PROCESS 0x80000000U
+#endif
+#ifndef SECCOMP_RET_KILL_THREAD
+#define SECCOMP_RET_KILL_THREAD 0x00000000U
+#endif
+#ifndef SECCOMP_RET_LOG
+#define SECCOMP_RET_LOG 0x7ffc0000U
+#endif
+#ifndef SECCOMP_RET_ACTION_FULL
+#define SECCOMP_RET_ACTION_FULL 0xffff0000U
+#endif
+
 PAS_BEGIN_EXTERN_C;
 
 pas_system_thread_id filc_panicking_thread;
@@ -12105,6 +12134,138 @@ static void set_seccomp_handshake_callback(void* arg)
 }
 #endif /* PAS_COSMO */
 
+/* The runtime's own syscalls run under the filter too, and the runtime believes what they
+   return. So, we only accept filters whose actions either really run a syscall or really fail it
+   with an errno, and reject the rest with EINVAL, as the kernel does for filters it doesn't
+   like:
+
+   - SECCOMP_RET_TRAP skips the syscall and rolls the return register back to the syscall
+     number before raising SIGSYS, so once a SIGSYS handler returns, the syscall "returns" its
+     own number. For example, epoll_wait would claim as many events as its syscall number, and
+     the runtime would copy that many out of a buffer sized for maxevents.
+   - SECCOMP_RET_ERRNO with an errno of 0 skips the syscall but reports success, so the runtime
+     would believe that a clone, mmap, or madvise happened when it did not.
+   - SECCOMP_RET_USER_NOTIF hands the syscall's result to a supervisor. We don't support
+     SECCOMP_FILTER_FLAG_NEW_LISTENER, so there can never be one.
+   - Anything else we don't know about may be one of those in a future kernel.
+
+   SECCOMP_RET_TRACE is fine: without a tracer it fails with ENOSYS, and a tracer can poke our
+   memory anyway. */
+static bool is_supported_seccomp_action(uint32_t action)
+{
+    switch (action) {
+    case SECCOMP_RET_KILL_PROCESS:
+    case SECCOMP_RET_KILL_THREAD:
+    case SECCOMP_RET_ERRNO:
+    case SECCOMP_RET_TRACE:
+    case SECCOMP_RET_LOG:
+    case SECCOMP_RET_ALLOW:
+        return true;
+    default:
+        return false;
+    }
+}
+
+static bool is_supported_seccomp_filter(const struct sock_filter* filter, unsigned len)
+{
+    unsigned index;
+    for (index = 0; index < len; ++index) {
+        if (BPF_CLASS(filter[index].code) != BPF_RET)
+            continue;
+        /* Returning the accumulator computes the action at run time, possibly from the syscall's
+           arguments, so there's no way to know which action it is. */
+        if (filter[index].code != (BPF_RET | BPF_K))
+            return false;
+        uint32_t action = filter[index].k & SECCOMP_RET_ACTION_FULL;
+        if (!is_supported_seccomp_action(action))
+            return false;
+        if (action == SECCOMP_RET_ERRNO && !(filter[index].k & SECCOMP_RET_DATA))
+            return false;
+    }
+    return true;
+}
+
+/* Installs the user's sock_fprog on every thread in the process. The caller must be the only user
+   thread.
+
+   We do that with SECCOMP_FILTER_FLAG_TSYNC rather than by handshaking the runtime's threads,
+   since some threads never handshake: the musl flavor runs main on a new thread and parks the
+   initial thread in pause() for good. The kernel only lets TSYNC sync a thread whose filters are
+   an ancestor of the caller's, which always holds since every filter gets installed this way.
+
+   Cosmo still handshakes, so there the parked initial thread goes unfiltered. Its syscall() only
+   knows a few syscalls, and its seccomp() makes syscall 211 (sendmsg) on aarch64. */
+static int set_seccomp_filter(filc_thread* my_thread, filc_ptr fprog_ptr, unsigned flags,
+                              const char* operation_name)
+{
+    size_t num_threads = filc_count_threads();
+    FILC_CHECK(
+        num_threads == 1,
+        NULL,
+        "cannot be multithreaded while doing %s (currently have %zu threads).",
+        operation_name, num_threads);
+
+    /* Validate the sock_fprog structure is readable */
+    filc_check_read(fprog_ptr, sizeof(struct sock_fprog));
+    struct sock_fprog* fprog = (struct sock_fprog*)filc_ptr_ptr(fprog_ptr);
+
+    /* Load the filter pointer from the struct */
+    filc_ptr filter_ptr = filc_load_ptr_at(my_thread, fprog_ptr, &fprog->filter);
+    unsigned short len = fprog->len;
+
+    /* Snapshot the filter so that what the kernel installs is exactly what we checked. A NULL or
+       empty filter is the kernel's to reject. */
+    struct sock_filter* filter = NULL;
+    if (len && filc_ptr_ptr(filter_ptr)) {
+        size_t size = filc_mul_size(sizeof(struct sock_filter), len);
+        filc_check_read(filter_ptr, size);
+        filter = (struct sock_filter*)filc_bmalloc_allocate_tmp(my_thread, size);
+        memcpy(filter, filc_ptr_ptr(filter_ptr), size);
+        if (!is_supported_seccomp_filter(filter, len)) {
+            filc_set_errno(EINVAL);
+            return -1;
+        }
+    }
+
+    /* Now create a native sock_fprog pointing to the validated filter */
+    struct sock_fprog native_fprog;
+    native_fprog.len = len;
+    native_fprog.filter = filter;
+
+#if PAS_COSMO
+    PAS_ASSERT(!flags);
+    filc_exit(my_thread);
+    set_seccomp_data data;
+    data.fprog = &native_fprog;
+    data.the_errno = 0;
+    filc_runtime_threads_handshake(set_seccomp_handshake_callback, &data);
+    set_seccomp_handshake_callback(&data);
+    filc_enter(my_thread);
+    if (data.the_errno) {
+        filc_set_errno(data.the_errno);
+        return -1;
+    }
+    return 0;
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    filc_exit(my_thread);
+    long result = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, flags | SECCOMP_FILTER_FLAG_TSYNC,
+                          &native_fprog);
+    int my_errno = errno;
+    filc_enter(my_thread);
+    if (result < 0) {
+        filc_set_errno(my_errno);
+        return -1;
+    }
+    /* TSYNC returns the ID of a thread that it couldn't sync. Report that like libseccomp and
+       SECCOMP_FILTER_FLAG_TSYNC_ESRCH do. */
+    if (result > 0) {
+        filc_set_errno(ESRCH);
+        return -1;
+    }
+    return 0;
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
+}
+
 int filc_native_zsys_prctl(filc_thread* my_thread, int option, filc_cc_cursor* args)
 {
     switch (option) {
@@ -12164,78 +12325,16 @@ int filc_native_zsys_prctl(filc_thread* my_thread, int option, filc_cc_cursor* a
     case PR_SET_SECCOMP: {
         unsigned long mode = filc_cc_cursor_get_next_unsigned_long(my_thread, args);
 
+        /* Strict mode is too restrictive for the runtime, so it's EINVAL like for a kernel
+           without CONFIG_SECCOMP. */
         if (mode == SECCOMP_MODE_STRICT) {
-            filc_internal_panic(
-                NULL, "cannot PR_SET_SECCOMP SECCOMP_MODE_STRICT; that's currently too restrictive "
-                "for the Fil-C runtime.");
+            filc_set_errno(EINVAL);
+            return -1;
         }
 
         if (mode == SECCOMP_MODE_FILTER) {
-            size_t num_threads = filc_count_threads();
-            FILC_CHECK(
-                num_threads == 1,
-                NULL,
-                "cannot be multithreaded while doing PR_SET_SECCOMP (currently have %zu threads).",
-                num_threads);
-            
             filc_ptr fprog_ptr = filc_cc_cursor_get_next_ptr(my_thread, args);
-
-            /* Validate the sock_fprog structure is readable */
-            filc_check_read(fprog_ptr, sizeof(struct sock_fprog));
-            struct sock_fprog* fprog = (struct sock_fprog*)filc_ptr_ptr(fprog_ptr);
-
-            /* Load the filter pointer from the struct */
-            filc_ptr filter_ptr = filc_load_ptr_at(my_thread, fprog_ptr, &fprog->filter);
-
-            /* Validate the filter array is readable */
-            if (fprog->len && filc_ptr_ptr(filter_ptr))
-                filc_check_read(filter_ptr, filc_mul_size(sizeof(struct sock_filter), fprog->len));
-
-            /* Now create a native sock_fprog pointing to the validated filter */
-            struct sock_fprog native_fprog;
-            native_fprog.len = fprog->len;
-            native_fprog.filter = (struct sock_filter*)filc_ptr_ptr(filter_ptr);
-            
-#if PAS_COSMO
-            filc_exit(my_thread);
-            set_seccomp_data data;
-            data.fprog = &native_fprog;
-            data.the_errno = 0;
-            filc_runtime_threads_handshake(set_seccomp_handshake_callback, &data);
-            set_seccomp_handshake_callback(&data);
-            filc_enter(my_thread);
-            if (data.the_errno) {
-                filc_set_errno(data.the_errno);
-                return -1;
-            }
-            return 0;
-#else /* PAS_COSMO -> so !PAS_COSMO */
-            /* We install the filter on every thread with SECCOMP_FILTER_FLAG_TSYNC rather than by
-               handshaking the runtime's threads, since some threads never handshake: the musl
-               flavor runs main on a new thread and parks the initial thread in pause() for good.
-               The kernel only lets TSYNC sync a thread whose filters are an ancestor of the
-               caller's, which always holds since every filter gets installed this way.
-
-               Cosmo still handshakes, so there the parked initial thread goes unfiltered. Its
-               syscall() only knows a few syscalls, and its seccomp() makes syscall 211 (sendmsg)
-               on aarch64. */
-            filc_exit(my_thread);
-            long result = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_TSYNC,
-                                  &native_fprog);
-            int my_errno = errno;
-            filc_enter(my_thread);
-            if (result < 0) {
-                filc_set_errno(my_errno);
-                return -1;
-            }
-            /* TSYNC returns the ID of a thread that it couldn't sync. Report that like libseccomp
-               and SECCOMP_FILTER_FLAG_TSYNC_ESRCH do. */
-            if (result > 0) {
-                filc_set_errno(ESRCH);
-                return -1;
-            }
-            return 0;
-#endif /* PAS_COSMO -> so end of !PAS_COSMO */
+            return set_seccomp_filter(my_thread, fprog_ptr, 0, "PR_SET_SECCOMP");
         }
 
         /* Unknown or unsupported mode */
@@ -12351,6 +12450,72 @@ long filc_native_zsys_flistxattr(filc_thread* my_thread, int fd, filc_ptr list_p
     check_fd(fd);
     filc_check_write(list_ptr, size);
     return FILC_SYSCALL(my_thread, flistxattr(fd, (char*)filc_ptr_ptr(list_ptr), size));
+#endif /* PAS_COSMO -> so end of !PAS_COSMO */
+}
+
+int filc_native_zsys_seccomp(filc_thread* my_thread, unsigned operation, unsigned flags,
+                             filc_ptr args_ptr)
+{
+#if PAS_COSMO
+    PAS_UNUSED_PARAM(my_thread);
+    PAS_UNUSED_PARAM(operation);
+    PAS_UNUSED_PARAM(flags);
+    PAS_UNUSED_PARAM(args_ptr);
+    filc_internal_panic(NULL, "seccomp not supported.");
+#else /* PAS_COSMO -> so !PAS_COSMO */
+    switch (operation) {
+    case SECCOMP_SET_MODE_STRICT:
+        /* Strict mode is too restrictive for the runtime, so it's EINVAL like for a kernel without
+           CONFIG_SECCOMP. That's also the answer to libseccomp's probe for seccomp(2), which asks
+           for strict mode with bogus flags. */
+        filc_set_errno(EINVAL);
+        return -1;
+
+    case SECCOMP_SET_MODE_FILTER:
+        /* We refuse SECCOMP_FILTER_FLAG_NEW_LISTENER since the listener could make any of the
+           runtime's syscalls return whatever it likes. SECCOMP_FILTER_FLAG_WAIT_KILLABLE_RECV is
+           meaningless without it. Report them like a kernel that doesn't know them would. */
+        if (flags & ~(SECCOMP_FILTER_FLAG_TSYNC | SECCOMP_FILTER_FLAG_LOG
+                      | SECCOMP_FILTER_FLAG_SPEC_ALLOW | SECCOMP_FILTER_FLAG_TSYNC_ESRCH)) {
+            filc_set_errno(EINVAL);
+            return -1;
+        }
+        /* libseccomp detects filter flags by passing them with a NULL filter and expecting
+           EFAULT. The kernel checks the flags and then fails to copy the filter without
+           installing anything, so let it. */
+        if (!filc_ptr_ptr(args_ptr))
+            return FILC_SYSCALL(my_thread, syscall(SYS_seccomp, operation, flags, NULL));
+        /* set_seccomp_filter() always uses TSYNC, and always reports a thread it couldn't sync
+           with ESRCH. */
+        return set_seccomp_filter(
+            my_thread, args_ptr,
+            flags & ~(SECCOMP_FILTER_FLAG_TSYNC | SECCOMP_FILTER_FLAG_TSYNC_ESRCH),
+            "seccomp SECCOMP_SET_MODE_FILTER");
+
+    case SECCOMP_GET_ACTION_AVAIL: {
+        if (flags) {
+            filc_set_errno(EINVAL);
+            return -1;
+        }
+        filc_check_read(args_ptr, sizeof(uint32_t));
+        uint32_t action;
+        memcpy(&action, filc_ptr_ptr(args_ptr), sizeof(uint32_t));
+        /* Don't advertise actions that set_seccomp_filter() would refuse. */
+        if (!is_supported_seccomp_action(action)) {
+            filc_set_errno(EOPNOTSUPP);
+            return -1;
+        }
+        return FILC_SYSCALL(my_thread, syscall(SYS_seccomp, operation, flags, &action));
+    }
+
+    case SECCOMP_GET_NOTIF_SIZES:
+        /* User notification is no good without SECCOMP_FILTER_FLAG_NEW_LISTENER, and libseccomp
+           decides whether it's available by whether this works, so answer like a kernel that
+           doesn't have it. */
+    default:
+        filc_set_errno(EINVAL);
+        return -1;
+    }
 #endif /* PAS_COSMO -> so end of !PAS_COSMO */
 }
 

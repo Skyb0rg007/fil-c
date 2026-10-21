@@ -556,6 +556,11 @@ long zsys_syscall(long n, ...)
         callee = zsys_get_mempolicy;
         break;
 
+    case SYS_seccomp:
+        callee = zsys_seccomp;
+        int_result = 1;
+        break;
+
     case SYS_landlock_create_ruleset:
         callee = zsys_landlock_create_ruleset;
         int_result = 1;

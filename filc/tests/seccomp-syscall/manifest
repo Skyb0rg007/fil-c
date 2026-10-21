@@ -1,0 +1,7 @@
+return:
+  success
+output-includes:
+  - "seccomp syscall ok"
+
+# Cosmo doesn't expose seccomp(2).
+unsupportedOnCOSMO: true
