@@ -1,6 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Terminal
-Exec=weston-terminal
-X-GNOME-Autostart-Phase=Applications
-NoDisplay=true

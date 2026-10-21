@@ -1,7 +1,0 @@
-[GNOME Session]
-Name=Pizlix GNOME
-# gnome-session resolves each entry by desktop-file id: this must match
-# /etc/xdg/autostart/pizlix-mutter.desktop (a RequiredComponents value of
-# "mutter" would make gnome-session look for a mutter.desktop that does
-# not exist and refuse to start the session).
-RequiredComponents=pizlix-mutter;

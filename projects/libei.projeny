@@ -1,6 +1,0 @@
-URL: https://deb.debian.org/debian/pool/main/libe/libei/libei_1.5.0.orig.tar.bz2 2e9e5924580f670d29eac040954567ccbb8eb7e5bbf552df6d653eb3272eb9f7
-URL: http://archive.ubuntu.com/ubuntu/pool/main/libe/libei/libei_1.5.0.orig.tar.bz2 2e9e5924580f670d29eac040954567ccbb8eb7e5bbf552df6d653eb3272eb9f7
-Origname: libei-1.5.0
-Name: libei
-
-    Fil-C patch for libei

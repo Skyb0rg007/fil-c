@@ -987,25 +987,18 @@ if get_option('enable-x11')
     if not has_xkbcomp.found()
         warning('xkbcomp program not found, but is required to run X11 tests.')
     endif
-    # Fil-C: only build the X11 test executables when Xvfb and xkbcomp are
-    # actually available.  The X11 tests use custom ELF section boundary
-    # symbols (__start_test_func_sec/__stop_test_func_sec) which the pizlonator
-    # rewrites to pizlonated_ names, so they cannot link under Fil-C, and
-    # without Xvfb they could never run anyway.
-    if has_xvfb.found() and has_xkbcomp.found()
-        test(
-            'x11',
-            executable('test-x11', 'test/x11.c', dependencies: x11_xvfb_test_dep),
-            env: test_env,
-            is_parallel : false,
-        )
-        test(
-            'x11comp',
-            executable('test-x11comp', 'test/x11comp.c', dependencies: x11_xvfb_test_dep),
-            env: test_env,
-            is_parallel : false,
-        )
-    endif
+    test(
+        'x11',
+        executable('test-x11', 'test/x11.c', dependencies: x11_xvfb_test_dep),
+        env: test_env,
+        is_parallel : false,
+    )
+    test(
+        'x11comp',
+        executable('test-x11comp', 'test/x11comp.c', dependencies: x11_xvfb_test_dep),
+        env: test_env,
+        is_parallel : false,
+    )
 endif
 if get_option('enable-xkbregistry')
     test(
