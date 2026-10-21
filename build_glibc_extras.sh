@@ -49,3 +49,6 @@ set -x
 ./build_procps.sh
 ./build_make.sh
 
+# PHP fibers use ucontext, which Fil-C implements in user glibc only.
+./build_php.sh
+
