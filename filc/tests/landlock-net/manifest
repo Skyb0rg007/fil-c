@@ -1,0 +1,4 @@
+return:
+  success
+output-includes:
+  - "landlock net ok"

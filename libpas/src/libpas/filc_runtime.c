@@ -110,7 +110,6 @@ static inline bool filc_running_on_windows(void)
 #include <sys/sysinfo.h>
 #include <sched.h>
 #include <sys/prctl.h>
-#include <linux/landlock.h>
 #include <sys/syscall.h>
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
@@ -146,6 +145,7 @@ int sys_getdents(unsigned, void *, unsigned, long *);
    definitions collide with <linux/landlock.h>), and declares pivot_root()
    only with _COSMO_SOURCE or _BSD_SOURCE. */
 int pivot_root(const char *, const char *);
+struct landlock_ruleset_attr;
 int landlock_restrict_self(int, unsigned);
 int landlock_add_rule(int, int, const void *, unsigned);
 int landlock_create_ruleset(const struct landlock_ruleset_attr *, size_t, unsigned);
@@ -166,6 +166,32 @@ int landlock_create_ruleset(const struct landlock_ruleset_attr *, size_t, unsign
 #ifndef SYS_listmount
 #define SYS_listmount 458
 #endif
+
+/* Landlock's UAPI, from <linux/landlock.h>. We don't include that header so that the runtime
+   builds against kernel headers from before Landlock (5.13) or before any of its rule types.
+   These are kernel ABI, and the syscall numbers are the same on every architecture. */
+#ifndef SYS_landlock_create_ruleset
+#define SYS_landlock_create_ruleset 444
+#endif
+#ifndef SYS_landlock_add_rule
+#define SYS_landlock_add_rule 445
+#endif
+#ifndef SYS_landlock_restrict_self
+#define SYS_landlock_restrict_self 446
+#endif
+
+#define FILC_LANDLOCK_RULE_PATH_BENEATH 1
+#define FILC_LANDLOCK_RULE_NET_PORT 2
+
+struct filc_landlock_path_beneath_attr {
+    uint64_t allowed_access;
+    int32_t parent_fd;
+} __attribute__((packed));
+
+struct filc_landlock_net_port_attr {
+    uint64_t allowed_access;
+    uint64_t port;
+};
 
 PAS_BEGIN_EXTERN_C;
 
@@ -12348,8 +12374,12 @@ int filc_native_zsys_landlock_add_rule(filc_thread* my_thread, int fd, int rule_
 {
     check_fd(fd);
     switch (rule_type) {
-    case LANDLOCK_RULE_PATH_BENEATH:
-        filc_check_read(rule_attr_ptr, sizeof(struct landlock_path_beneath_attr));
+    case FILC_LANDLOCK_RULE_PATH_BENEATH:
+        filc_check_read(rule_attr_ptr, sizeof(struct filc_landlock_path_beneath_attr));
+        break;
+
+    case FILC_LANDLOCK_RULE_NET_PORT:
+        filc_check_read(rule_attr_ptr, sizeof(struct filc_landlock_net_port_attr));
         break;
 
     default:
