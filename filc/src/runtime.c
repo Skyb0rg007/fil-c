@@ -634,6 +634,16 @@ long zsys_syscall(long n, ...)
         int_result = 1;
         break;
 
+    case SYS_unshare:
+        callee = zsys_unshare;
+        int_result = 1;
+        break;
+
+    case SYS_setns:
+        callee = zsys_setns;
+        int_result = 1;
+        break;
+
     case SYS_setreuid:
         callee = zsys_setreuid;
         int_result = 1;
