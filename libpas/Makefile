@@ -152,7 +152,10 @@ else
 PICFLAG =
 endif
 
+# We compile against our own sysroot with -nostdinc, so include flags that a compiler wrapper adds
+# (e.g. nix's adds -nostdlibinc) go unused. That shouldn't fail the -Werror build.
 PASCC = $(HOST_CLANG) $(CROSS_TARGET_FLAGS) $(ARCH_CFLAGS) $(PICFLAG) -pthread -nostdinc \
+	-Wno-unused-command-line-argument \
 	-isystem $(FILC_YOLO_INCLUDE) -isystem $(FILC_OS_INCLUDE) \
 	-isystem $(FILC_STDFIL_INCLUDE) \
 	$(HOST_CLANG_EXTRA_FLAGS) $(COSMO_CCFLAGS)
