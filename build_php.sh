@@ -65,7 +65,7 @@ make -j $NCPU install
 
 # Do a cheesy test of what the Fil-C patch touches: WeakMap keys, fibers and
 # their stack limit, Dom\HTMLDocument (lexbor name IDs), overflow arithmetic,
-# and opcache.
+# opcache, and the system allocator (Zend's counts real usage in 2 MiB chunks).
 $PZ/bin/php -n -d zend.assertions=1 -d zend_extension=opcache -d opcache.enable_cli=1 -r '
     $m = new WeakMap; $o = new stdClass; $m[$o] = 1;
     foreach ($m as $k => $v) assert($k === $o && $v === 1);
@@ -79,6 +79,7 @@ $PZ/bin/php -n -d zend.assertions=1 -d zend_extension=opcache -d opcache.enable_
     assert($d->querySelector("custom-el")->getAttribute("data-x") === "y");
     $i = PHP_INT_MAX; $i++; assert(is_float($i));
     assert(opcache_get_status(false)["opcache_enabled"]);
+    assert(memory_get_usage(true) % (2 << 20) !== 0);
     echo "php ok\n";'
 cd ..
 rm -rf extracted-source
