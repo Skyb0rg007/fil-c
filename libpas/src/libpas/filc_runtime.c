@@ -13508,6 +13508,15 @@ static size_t mnt_id_req_size_max(void)
     return pas_real_page_size();
 }
 
+/* The second word of the request is an fd that the kernel looks at: mnt_ns_fd (the mount
+   namespace to look in, 0 meaning our own) or, for STATMOUNT_BY_FD, mnt_fd. */
+static void check_mnt_id_req_fd(const void* req_copy)
+{
+    int fd;
+    memcpy(&fd, (const char*)req_copy + sizeof(uint32_t), sizeof(int));
+    check_fd(fd);
+}
+
 long filc_native_zsys_statmount(filc_thread* my_thread, filc_ptr req_ptr, filc_ptr buf_ptr,
                                 size_t bufsize, unsigned flags)
 {
@@ -13551,6 +13560,7 @@ long filc_native_zsys_statmount(filc_thread* my_thread, filc_ptr req_ptr, filc_p
     void* req_copy = filc_bmalloc_allocate_tmp(my_thread, req_size);
     memcpy(req_copy, filc_ptr_ptr(req_ptr), req_size);
     *(uint32_t*)req_copy = (uint32_t)req_size;
+    check_mnt_id_req_fd(req_copy);
 
     return FILC_SYSCALL(
         my_thread, syscall(SYS_statmount, req_copy, filc_ptr_ptr(buf_ptr), bufsize, flags));
@@ -13591,6 +13601,7 @@ long filc_native_zsys_listmount(filc_thread* my_thread, filc_ptr req_ptr, filc_p
     void* req_copy = filc_bmalloc_allocate_tmp(my_thread, req_size);
     memcpy(req_copy, filc_ptr_ptr(req_ptr), req_size);
     *(uint32_t*)req_copy = (uint32_t)req_size;
+    check_mnt_id_req_fd(req_copy);
 
     return FILC_SYSCALL(
         my_thread, syscall(SYS_listmount, req_copy, filc_ptr_ptr(list_ptr), num, flags));
